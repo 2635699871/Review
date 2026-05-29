@@ -1,0 +1,152 @@
+/** Severity levels for review findings */
+export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+
+/** Review dimensions — extensible via registerDimension() */
+export type Dimension = string;
+
+/** File change status in a PR */
+export type FileStatus = "added" | "modified" | "renamed" | "removed" | "changed";
+
+/** A single file from a PR */
+export interface PRFile {
+  filename: string;
+  status: FileStatus;
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;
+  blob_url?: string;
+  raw_url?: string;
+  contents_url?: string;
+}
+
+/** PR metadata from GitHub */
+export interface PRMetadata {
+  owner: string;
+  repo: string;
+  number: number;
+  title: string;
+  body: string | null;
+  author: string;
+  baseBranch: string;
+  headBranch: string;
+  state: "open" | "closed" | "merged";
+  draft: boolean;
+  mergeable: string | null;
+  files: PRFile[];
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  commits: PRCommit[];
+  ciStatus: CICheck[];
+}
+
+/** A commit on the PR branch */
+export interface PRCommit {
+  sha: string;
+  message: string;
+  author: string;
+  date: string;
+}
+
+/** CI check status */
+export interface CICheck {
+  name: string;
+  status: string;
+  conclusion: string | null;
+}
+
+/** A single review finding */
+export interface Finding {
+  severity: Severity;
+  dimension: Dimension;
+  file: string;
+  line?: number;
+  endLine?: number;
+  category: string;
+  issue: string;
+  fix: string;
+  confidence: number;
+}
+
+/** Aggregated review result */
+export interface ReviewResult {
+  pr: PRMetadata;
+  findings: Finding[];
+  summary: string;verdict: "BLOCK" | "REQUEST_CHANGES" | "COMMENT";
+  actionableRate: number;
+  reviewedAt: string;
+  dimensionsRun: Dimension[];
+}
+
+/** Progress event emitted during review */
+export interface ReviewProgress {
+  phase: "fetch" | "filter" | "review" | "aggregate" | "report" | "done" | "error";
+  message: string;
+  detail?: string;
+  percent?: number;
+}
+
+/** Configuration options */
+export interface ReviewConfig {
+  prIdentifier: string;
+  deep: boolean;
+  output: "terminal" | "markdown" | "github" | "all";
+  dimensions: Dimension[];
+  maxFiles: number;verbose: boolean;
+  onProgress?: (event: ReviewProgress) => void;
+  provider?: ProviderType;
+  apiKey?: string;
+  apiBaseUrl?: string;
+  modelOverride?: string;
+  githubToken?: string;
+}
+
+import type { ProviderType } from "./models/provider-registry.js";
+export type { ProviderType };
+
+/** Provider configuration */
+export interface ProviderConfig {
+  type: ProviderType;
+  apiKey: string;
+  baseUrl?: string;
+  model: string;
+}
+
+/** Stored credentials (for Web UI settings) */
+export interface StoredSettings {
+  provider: ProviderType;
+  keys: Record<string, string>;
+  baseUrls: Record<string, string>;
+  models: Record<string, string>;
+  githubToken: string;
+}
+
+/** Feedback label for a finding */
+export type FeedbackLabel = "fp" | "fn" | "tp";
+
+/** User feedback on a finding */
+export interface FindingFeedback {
+  file: string;
+  category: string;
+  label: FeedbackLabel;
+  timestamp: string;
+}
+
+/** Feedback store persisted to disk */
+export interface FeedbackStore {
+  entries: FindingFeedback[];
+  falsePositivePatterns: Array<{ filePattern: string; category: string }>;
+}
+
+/** Context bundle passed to each dimension reviewer */
+export interface ReviewContext {
+  pr: PRMetadata;
+  filteredFiles: PRFile[];
+  highRiskFiles: PRFile[];
+  fullFiles: Map<string, string>;
+  repoConventions?: string;
+  existingComments: string[];
+  totalAdditions: number;
+  totalDeletions: number;
+}
