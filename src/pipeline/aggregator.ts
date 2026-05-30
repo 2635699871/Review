@@ -82,7 +82,7 @@ function deduplicate(findings: Finding[]): Finding[] {
 
   for (const f of findings) {
     // Hash: file + line + category
-    const key = `${f.file}:${f.line ?? "N"}:${f.category}`;
+    const key = `${f.file ?? "?"}:${f.line ?? "N"}:${f.category ?? "?"}`;
     if (seen.has(key)) continue;
 
     // Check near-duplicates with same file+dimension
@@ -91,7 +91,7 @@ function deduplicate(findings: Finding[]): Finding[] {
         r.file === f.file &&
         r.dimension === f.dimension &&
         r.line === f.line &&
-        levenshteinDistance(r.issue, f.issue) < 0.3 * Math.max(r.issue.length, f.issue.length)
+        levenshteinDistance(r.issue ?? "", f.issue ?? "") < 0.3 * Math.max((r.issue ?? "").length, (f.issue ?? "").length)
     );
 
     if (nearDup) {

@@ -49,7 +49,12 @@ export function createApp() {
     });
 
     function send(event: string, data: unknown) {
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      if (!res.writable) return;
+      try {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      } catch {
+        // Client disconnected — stream is no longer writable
+      }
     }
 
     let config: ReviewConfig;

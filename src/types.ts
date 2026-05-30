@@ -39,6 +39,7 @@ export interface PRMetadata {
   changedFiles: number;
   commits: PRCommit[];
   ciStatus: CICheck[];
+  headSha?: string;
 }
 
 /** A commit on the PR branch */

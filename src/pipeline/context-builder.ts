@@ -64,9 +64,14 @@ export async function buildReviewContext(params: {
 
   // Level 2: Fetch full file content for high-risk files
   if (highRiskFiles.length > 0 && gitHubToken) {
+    // Use headSha as fallback ref for forked PRs where the branch doesn't exist in the base repo
+    const ref = pr.headBranch;
+    const fallbackRef = pr.headSha;
     const results = await Promise.allSettled(
       highRiskFiles.map((f) =>
-        fetchGitHubFile(pr.owner, pr.repo, f.filename, pr.headBranch, gitHubToken)
+        fetchGitHubFile(pr.owner, pr.repo, f.filename, ref, gitHubToken).then(
+          (content) => content ?? (fallbackRef ? fetchGitHubFile(pr.owner, pr.repo, f.filename, fallbackRef, gitHubToken) : null)
+        )
       )
     );
     results.forEach((r, i) => {
@@ -79,11 +84,16 @@ export async function buildReviewContext(params: {
   // Level 3: Fetch repo conventions in deep mode
   let repoConventions: string | undefined;
   if (deep && gitHubToken) {
+    const ref = pr.headBranch;
+    const fallbackRef = pr.headSha;
     const conventionTexts: string[] = [];
     for (const file of CONVENTION_FILES) {
-      const content = await fetchGitHubFile(
-        pr.owner, pr.repo, file, pr.headBranch, gitHubToken
+      let content = await fetchGitHubFile(
+        pr.owner, pr.repo, file, ref, gitHubToken
       );
+      if (!content && fallbackRef) {
+        content = await fetchGitHubFile(pr.owner, pr.repo, file, fallbackRef, gitHubToken);
+      }
       if (content) {
         conventionTexts.push(`## ${file}\n\n${content}`);
       }
