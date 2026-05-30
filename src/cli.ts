@@ -31,7 +31,12 @@ program
   .option("--provider <id>", "LLM provider (anthropic, openai, deepseek, gemini, groq, ...)")
   .option("--api-key <key>", "API key for the selected provider")
   .option("--model <name>", "Override the default model for the selected provider")
-  .option("--api-base-url <url>", "Override the default API base URL").option("-v, --verbose", "Enable verbose logging")
+  .option("--api-base-url <url>", "Override the default API base URL")
+  .option(
+    "--exclude <patterns>",
+    "Additional glob patterns to exclude from review (comma-separated, e.g. '*.generated.*,src/vendor/**')"
+  )
+  .option("-v, --verbose", "Enable verbose logging")
   .action(async (pr: string, options: Record<string, string | boolean>) => {
     try {
       const config = buildConfig({
@@ -44,7 +49,9 @@ program
         provider: options.provider as string | undefined,
         apiKey: options.apiKey as string | undefined,
         modelOverride: options.model as string | undefined,
-        apiBaseUrl: options.apiBaseUrl as string | undefined,});
+        apiBaseUrl: options.apiBaseUrl as string | undefined,
+        exclude: options.exclude as string | undefined,
+      });
 
       const result = await runReview(config);
       if (!result) {

@@ -161,6 +161,12 @@
         </label>
         <button id="review-btn" onclick="startReview()">开始审查</button>
       </div>
+      <div class="form-row" style="margin-top:8px">
+        <div class="form-group">
+          <label for="exclude-input">排除文件（可选，逗号分隔的 glob 模式）</label>
+          <input id="exclude-input" type="text" placeholder="*.generated.*,src/vendor/**" style="width:480px">
+        </div>
+      </div>
     </div>
 
     <!-- 进度 -->
@@ -438,6 +444,7 @@ async function startReview() {
     output: 'all',
     dimensions: $('#dims-select').value || undefined,
     maxFiles: parseInt($('#maxfiles-input').value) || 50,
+    exclude: $('#exclude-input').value.trim() || undefined,
     provider: settings.provider,
     apiKey: getActiveApiKey() || undefined,
     apiBaseUrl: getActiveBaseUrl() || undefined,
