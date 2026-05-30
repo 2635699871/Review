@@ -8,7 +8,15 @@ export interface LLMClient {
     diffContent: string,
     metadata: string,
     dimension: Dimension
-  ): Promise<Finding[]>;}
+  ): Promise<Finding[]>;
+
+  /** Generate a Chinese summary paragraph from aggregated review results */
+  summarize(
+    systemPrompt: string,
+    findingsText: string,
+    metadataText: string
+  ): Promise<string>;
+}
 
 interface ProviderConfig {
   type: ProviderType;
@@ -81,6 +89,27 @@ function createAnthropicClientSync(config: ProviderConfig): LLMClient {
       return parseFindings(text, dimension);
     },
 
+    async summarize(systemPrompt, findingsText, _metadataText) {
+      if (!client) {
+        const Anthropic = (await import("@anthropic-ai/sdk")).default;
+        client = new Anthropic({
+          apiKey: config.apiKey,
+          baseURL: config.baseUrl,
+        });
+      }
+
+      const response = await client.messages.create({
+        model: config.model,
+        max_tokens: 512,
+        system: [{ type: "text", text: systemPrompt }],
+        messages: [
+          { role: "user", content: [{ type: "text", text: findingsText }] },
+        ],
+      });
+
+      const textBlock = response.content.find((b: any) => b.type === "text");
+      return (textBlock && "text" in textBlock) ? (textBlock as any).text : "";
+    },
   };
 }
 
@@ -151,6 +180,32 @@ function createOpenAICompatibleClientSync(config: ProviderConfig): LLMClient {
       throw lastError ?? new Error("Max retries exceeded");
     },
 
+    async summarize(systemPrompt, findingsText, _metadataText) {
+      const response = await fetch(baseUrl + "/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.model,
+          max_tokens: 512,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: findingsText },
+          ],
+          temperature: 0.3,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Summarize API error (${response.status}): ${errText.slice(0, 200)}`);
+      }
+
+      const data: any = await response.json();
+      return data.choices?.[0]?.message?.content ?? "";
+    },
   };
 }
 
@@ -174,7 +229,8 @@ Review the above diff for **${dimension}** issues. For each finding, output JSON
       "line": 42,
       "category": "specific-category",
       "issue": "Clear description of the problem",
-      "fix": "Specific fix suggestion"
+      "fix": "Specific fix suggestion",
+      "zh_brief": "一行中文简评（30字以内）"
     }
   ]
 }
@@ -184,7 +240,9 @@ Rules:
 - Only report findings you are highly confident about (>80%)
 - Each finding MUST reference a specific line in the diff
 - Skip style issues that a linter would catch
-- Skip generic patterns like "needs error handling" without concrete failure mode- If there are no issues, return {"findings": []}
+- Skip generic patterns like "needs error handling" without concrete failure mode
+- For zh_brief: write a concise one-line Chinese assessment (under 30 chars). Focus on the core risk or impact.
+- If there are no issues, return {"findings": []}
 `;
 }
 
@@ -200,7 +258,9 @@ function parseFindings(text: string, dimension: Dimension): Finding[] {
       line?: number;
       category: string;
       issue: string;
-      fix: string;}> = parsed.findings ?? [];
+      fix: string;
+      zh_brief?: string;
+    }> = parsed.findings ?? [];
 
     return rawFindings.map((f) => ({
       severity: normalizeSeverity(f.severity),
@@ -210,7 +270,9 @@ function parseFindings(text: string, dimension: Dimension): Finding[] {
       category: f.category,
       issue: f.issue,
       fix: f.fix,
-      confidence: 0.85,}));
+      confidence: 0.85,
+      zhBrief: f.zh_brief,
+    }));
   } catch {
     return fallbackParse(text, dimension);
   }
@@ -233,7 +295,9 @@ function fallbackParse(text: string, dimension: Dimension): Finding[] {
         category: dimension,
         issue: match[4]!.trim(),
         fix: "See issue description",
-        confidence: 0.7,});
+        confidence: 0.7,
+        zhBrief: undefined,
+      });
     }
   }
 
