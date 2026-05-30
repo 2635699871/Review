@@ -99,6 +99,8 @@ export interface ReviewConfig {
   output: "terminal" | "markdown" | "github" | "all";
   dimensions: Dimension[];
   maxFiles: number;
+  /** Glob patterns for files to exclude from review (in addition to built-in patterns) */
+  exclude?: string[];
   verbose: boolean;
   onProgress?: (event: ReviewProgress) => void;
   provider?: ProviderType;
