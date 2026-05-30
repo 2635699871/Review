@@ -157,7 +157,7 @@ function isSeverityDefensible(finding: Finding): { passed: boolean; reason?: str
       /it is possible/i,
     ];
     const isSmell = smellPatterns.some((p) => p.test(finding.issue));
-    if (isSmell && finding.confidence < 0.85) {
+    if (isSmell && finding.confidence <= 0.85) {
       return { passed: false, reason: "severity" };
     }
   }

@@ -1,7 +1,6 @@
 import type { ReviewConfig, ReviewResult, Finding, ReviewContext, Dimension } from "../types.js";
 import { createLLMClient, type LLMClient } from "../models/provider-router.js";
 import { filterFiles, summarizeFilter } from "../utils/file-filter.js";
-import { languageSummary } from "../utils/language-detect.js";
 import { calculateBudget, largePRWarning } from "../utils/token-budget.js";
 import {
   buildReviewContext,
@@ -58,7 +57,7 @@ export async function runReview(config: ReviewConfig): Promise<ReviewResult | nu
   notify({
     phase: "filter",
     message: summarizeFilter(fileCategory),
-    detail: `Languages: ${languageSummary(prData.files)}`,
+    detail: `${prData.changedFiles} files changed`,
   });
 
   const warning = largePRWarning(prData.changedFiles);
@@ -406,10 +405,28 @@ async function fetchPRData(
 
   const baseUrl = `https://api.github.com/repos/${owner}/${repo}`;
 
-  const [prResp, filesResp, commitsResp] = await Promise.all([
+  // Paginated fetch helper — follows Link headers to collect all pages
+  async function fetchAllPages(url: string): Promise<any[]> {
+    const all: any[] = [];
+    let nextUrl: string | null = url;
+    while (nextUrl) {
+      const resp: Response = await fetch(nextUrl, { headers });
+      if (!resp.ok) break;
+      all.push(...(await resp.json()) as any[]);
+      nextUrl = null;
+      const link: string | null = resp.headers.get("link");
+      if (link) {
+        const m: RegExpMatchArray | null = link.match(/<([^>]+)>;\s*rel="next"/);
+        if (m) nextUrl = m[1]!;
+      }
+    }
+    return all;
+  }
+
+  const [prResp, filesJson, commitsJson] = await Promise.all([
     fetch(`${baseUrl}/pulls/${number}`, { headers }),
-    fetch(`${baseUrl}/pulls/${number}/files?per_page=100`, { headers }),
-    fetch(`${baseUrl}/pulls/${number}/commits?per_page=100`, { headers }),
+    fetchAllPages(`${baseUrl}/pulls/${number}/files?per_page=100`),
+    fetchAllPages(`${baseUrl}/pulls/${number}/commits?per_page=100`),
   ]);
 
   if (!prResp.ok) {
@@ -417,8 +434,6 @@ async function fetchPRData(
   }
 
   const prJson: any = await prResp.json();
-  const filesJson: any[] = filesResp.ok ? await filesResp.json() : [];
-  const commitsJson: any[] = commitsResp.ok ? await commitsResp.json() : [];
 
   // Fetch CI checks for the head commit
   let ciStatus: Array<{ name: string; status: string; conclusion: string | null }> = [];
@@ -453,6 +468,7 @@ async function fetchPRData(
     author: prJson.user?.login ?? "unknown",
     baseBranch: prJson.base?.ref ?? "main",
     headBranch: prJson.head?.ref ?? "unknown",
+    headSha: prJson.head?.sha,
     state: (prJson.state === "closed" && prJson.merged ? "merged" : prJson.state) ?? "open",
     draft: prJson.draft ?? false,
     mergeable: String(prJson.mergeable ?? "unknown"),

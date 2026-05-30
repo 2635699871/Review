@@ -89,7 +89,7 @@ function createAnthropicClientSync(config: ProviderConfig): LLMClient {
       return parseFindings(text, dimension);
     },
 
-    async summarize(systemPrompt, findingsText, _metadataText) {
+    async summarize(systemPrompt, findingsText, metadataText) {
       if (!client) {
         const Anthropic = (await import("@anthropic-ai/sdk")).default;
         client = new Anthropic({
@@ -103,7 +103,7 @@ function createAnthropicClientSync(config: ProviderConfig): LLMClient {
         max_tokens: 512,
         system: [{ type: "text", text: systemPrompt }],
         messages: [
-          { role: "user", content: [{ type: "text", text: findingsText }] },
+          { role: "user", content: [{ type: "text", text: findingsText + "\n\n" + metadataText }] },
         ],
       });
 
@@ -180,7 +180,7 @@ function createOpenAICompatibleClientSync(config: ProviderConfig): LLMClient {
       throw lastError ?? new Error("Max retries exceeded");
     },
 
-    async summarize(systemPrompt, findingsText, _metadataText) {
+    async summarize(systemPrompt, findingsText, metadataText) {
       const response = await fetch(baseUrl + "/chat/completions", {
         method: "POST",
         headers: {
@@ -192,7 +192,7 @@ function createOpenAICompatibleClientSync(config: ProviderConfig): LLMClient {
           max_tokens: 512,
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: findingsText },
+            { role: "user", content: findingsText + "\n\n" + metadataText },
           ],
           temperature: 0.3,
         }),
@@ -260,7 +260,7 @@ function parseFindings(text: string, dimension: Dimension): Finding[] {
       issue: string;
       fix: string;
       zh_brief?: string;
-    }> = parsed.findings ?? [];
+    }> = Array.isArray(parsed.findings) ? parsed.findings : [];
 
     return rawFindings.map((f) => ({
       severity: normalizeSeverity(f.severity),
@@ -314,7 +314,7 @@ function normalizeSeverity(severity: string): Severity {
 
 /** Ensure a base URL ends with a valid API path. Only appends /v1 when the URL is a bare hostname. */
 function normalizeBaseUrl(url: string): string {
-  if (!url) return "";
+  if (!url) throw new Error("API base URL is required for OpenAI-compatible providers. Use --api-base-url or set the appropriate environment variable.");
   // Already has a versioned API path (/v1, /v1beta/..., /v2, /v3, /v4, /paas/v4, /compatibility/v1, /openai)
   if (/\/v\d/.test(url) || url.endsWith("/openai")) return url;
   // Bare hostname — append /v1

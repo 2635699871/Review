@@ -152,7 +152,7 @@ export function generateInlineComments(
   const comments: Array<{ path: string; line: number; body: string }> = [];
 
   for (const f of findings) {
-    if (f.line && f.file) {
+    if (f.line != null && f.file) {
       const sev = f.severity === "CRITICAL" ? "🔴" : f.severity === "HIGH" ? "🟡" : "🔵";
       const zhLine = f.zhBrief ? `\n\n简评: ${f.zhBrief}` : "";
       comments.push({
