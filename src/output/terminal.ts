@@ -1,5 +1,5 @@
 import type { Finding, ReviewResult, Severity } from "../types.js";
-import { countBySeverity } from "../pipeline/aggregator.js";
+import { countBySeverity, SEVERITY_ORDER } from "../pipeline/aggregator.js";
 import chalk from "chalk";
 
 const SEVERITY_COLORS: Record<Severity, (s: string) => string> = {
@@ -71,7 +71,7 @@ export function renderTerminal(result: ReviewResult): string {
   }
 
   // Findings by severity
-  const severities: Severity[] = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+  const severities: Severity[] = [...SEVERITY_ORDER];
   for (const severity of severities) {
     const group = result.findings.filter((f) => f.severity === severity);
     if (group.length === 0) continue;
@@ -97,7 +97,7 @@ export function renderTerminal(result: ReviewResult): string {
           chalk.white(finding.issue)
       );
       lines.push(
-        chalk.gray(`  Dimension: ${DIMENSION_LABELS[finding.dimension] ?? finding.dimension}`)
+        chalk.gray(`  Dimension: ${finding.dimension.split(", ").map((d) => DIMENSION_LABELS[d] ?? d).join(", ")}`)
       );
       lines.push(
         chalk.gray(

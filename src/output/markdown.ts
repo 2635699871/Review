@@ -1,5 +1,5 @@
 import type { ReviewResult, Finding, Severity } from "../types.js";
-import { countBySeverity } from "../pipeline/aggregator.js";
+import { countBySeverity, SEVERITY_ORDER } from "../pipeline/aggregator.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -46,7 +46,7 @@ export function generateReport(result: ReviewResult): string {
   lines.push("");
 
   // Findings by severity
-  const severities: Severity[] = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+  const severities: Severity[] = [...SEVERITY_ORDER];
   for (const severity of severities) {
     const group = result.findings.filter((f) => f.severity === severity);
     if (group.length === 0) {
@@ -83,7 +83,7 @@ export function generateReport(result: ReviewResult): string {
   lines.push("| Dimension | Findings |");
   lines.push("|-----------|----------|");
   for (const dim of result.dimensionsRun) {
-    const count = result.findings.filter((f) => f.dimension === dim).length;
+    const count = result.findings.filter((f) => f.dimension.split(", ").includes(dim)).length;
     lines.push(`| ${dim} | ${count} |`);
   }
   lines.push("");

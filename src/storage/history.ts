@@ -11,6 +11,7 @@ let _storageOverride: string | null = null;
 /** Override storage directory — for use in tests only. Pass null to reset. */
 export function setStorageDirForTest(dir: string | null): void {
   _storageOverride = dir;
+  _feedbackCache = null;
 }
 
 interface HistoryEntry {
@@ -115,20 +116,27 @@ export function saveResult(result: ReviewResult): void {
 
 // ─── Feedback (false-positive/false-negative learning) ───────
 
+let _feedbackCache: FeedbackStore | null = null;
+
 function loadFeedback(): FeedbackStore {
+  if (_feedbackCache) return _feedbackCache;
   const dir = ensureDir();
   const filepath = path.join(dir, FEEDBACK_FILE);
   if (!fs.existsSync(filepath)) {
-    return { entries: [], falsePositivePatterns: [] };
+    _feedbackCache = { entries: [], falsePositivePatterns: [] };
+    return _feedbackCache;
   }
   try {
-    return JSON.parse(fs.readFileSync(filepath, "utf-8"));
+    _feedbackCache = JSON.parse(fs.readFileSync(filepath, "utf-8")) as FeedbackStore;
+    return _feedbackCache;
   } catch {
-    return { entries: [], falsePositivePatterns: [] };
+    _feedbackCache = { entries: [], falsePositivePatterns: [] };
+    return _feedbackCache;
   }
 }
 
 function saveFeedbackStore(store: FeedbackStore): void {
+  _feedbackCache = store;
   const dir = ensureDir();
   const filepath = path.join(dir, FEEDBACK_FILE);
   fs.writeFileSync(filepath, JSON.stringify(store, null, 2), "utf-8");
@@ -137,12 +145,7 @@ function saveFeedbackStore(store: FeedbackStore): void {
 /** Record user feedback on a finding */
 export function addFeedback(entry: FindingFeedback): void {
   const store = loadFeedback();
-  const isDuplicate = store.entries.some(
-    (e) => e.file === entry.file && e.category === entry.category && e.label === entry.label && e.timestamp === entry.timestamp
-  );
-  if (!isDuplicate) {
-    store.entries.push(entry);
-  }
+  store.entries.push(entry);
 
   // If marked as false positive twice for the same category, add to known FP patterns
   if (entry.label === "fp") {
@@ -174,7 +177,7 @@ export function getFalsePositivePatterns(): Array<{ filePattern: string; categor
 export function isKnownFalsePositive(file: string, category: string): boolean {
   const patterns = loadFeedback().falsePositivePatterns;
   return patterns.some(
-    (p) => file.includes(p.filePattern) && category === p.category
+    (p) => file === p.filePattern && category.split(", ").includes(p.category)
   );
 }
 

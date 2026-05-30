@@ -9,7 +9,7 @@ import {
 } from "../pipeline/context-builder.js";
 import { buildReviewerSystemPrompt, buildSummarySystemPrompt, getDimensionLabel } from "../models/prompts.js";
 import { getProvider, getDefaultModel, getDefaultBaseUrl } from "../models/provider-registry.js";
-import { aggregate, determineVerdict } from "../pipeline/aggregator.js";
+import { aggregate, determineVerdict, SEVERITY_ORDER } from "../pipeline/aggregator.js";
 import { renderTerminal } from "../output/terminal.js";
 import { saveReport, submitGitHubReview } from "../output/markdown.js";
 
@@ -246,6 +246,7 @@ function createClient(config: ReviewConfig, budget: { thinkingTokens: number }):
     model,
     maxTokens: Math.max(4096, budget.thinkingTokens + 1536),
     thinkingBudget: budget.thinkingTokens,
+    temperature: 0,
   });
 }
 
@@ -500,7 +501,7 @@ function buildFindingsSummary(findings: Finding[]): string {
   if (findings.length === 0) return "No findings.";
 
   const lines: string[] = [];
-  const severities = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+  const severities = [...SEVERITY_ORDER];
   for (const sev of severities) {
     const group = findings.filter((f) => f.severity === sev);
     if (group.length === 0) continue;

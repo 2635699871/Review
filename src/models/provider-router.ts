@@ -25,6 +25,7 @@ interface ProviderConfig {
   model: string;
   maxTokens: number;
   thinkingBudget: number;
+  temperature: number;
 }
 
 /** Create the appropriate LLM client for the given provider */
@@ -57,6 +58,7 @@ function createAnthropicClientSync(config: ProviderConfig): LLMClient {
       const response = await client.messages.create({
         model: config.model,
         max_tokens: config.maxTokens,
+        temperature: config.temperature,
         system: [{ type: "text", text: systemPrompt }],
         messages: [
           {
@@ -101,6 +103,7 @@ function createAnthropicClientSync(config: ProviderConfig): LLMClient {
       const response = await client.messages.create({
         model: config.model,
         max_tokens: 512,
+        temperature: config.temperature,
         system: [{ type: "text", text: systemPrompt }],
         messages: [
           { role: "user", content: [{ type: "text", text: findingsText + "\n\n" + metadataText }] },
@@ -140,7 +143,7 @@ function createOpenAICompatibleClientSync(config: ProviderConfig): LLMClient {
                 { role: "system", content: systemPrompt },
                 { role: "user", content: diffContent + "\n\n" + userPrompt },
               ],
-              temperature: 0.3,
+              temperature: config.temperature,
             }),
           });
 
@@ -194,7 +197,7 @@ function createOpenAICompatibleClientSync(config: ProviderConfig): LLMClient {
             { role: "system", content: systemPrompt },
             { role: "user", content: findingsText + "\n\n" + metadataText },
           ],
-          temperature: 0.3,
+          temperature: config.temperature,
         }),
       });
 
@@ -230,6 +233,7 @@ Review the above diff for **${dimension}** issues. For each finding, output JSON
       "category": "specific-category",
       "issue": "Clear description of the problem",
       "fix": "Specific fix suggestion",
+      "code_quote": "The exact line(s) from the diff that triggered this finding",
       "zh_brief": "一行中文简评（30字以内）"
     }
   ]
@@ -239,6 +243,7 @@ Review the above diff for **${dimension}** issues. For each finding, output JSON
 Rules:
 - Only report findings you are highly confident about (>80%)
 - Each finding MUST reference a specific line in the diff
+- Each finding MUST include \`code_quote\` — copy-paste the exact line(s) from the diff that triggered the finding. This proves the finding is grounded in real code, not speculation.
 - Skip style issues that a linter would catch
 - Skip generic patterns like "needs error handling" without concrete failure mode
 - For zh_brief: write a concise one-line Chinese assessment (under 30 chars). Focus on the core risk or impact.
@@ -259,6 +264,7 @@ function parseFindings(text: string, dimension: Dimension): Finding[] {
       category: string;
       issue: string;
       fix: string;
+      code_quote?: string;
       zh_brief?: string;
     }> = Array.isArray(parsed.findings) ? parsed.findings : [];
 

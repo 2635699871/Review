@@ -81,25 +81,24 @@ function deduplicate(findings: Finding[]): Finding[] {
   const result: Finding[] = [];
 
   for (const f of findings) {
-    // Hash: file + line + category
     const key = `${f.file ?? "?"}:${f.line ?? "N"}:${f.category ?? "?"}`;
     if (seen.has(key)) continue;
 
-    // Check near-duplicates with same file+dimension
-    const nearDup = result.find(
+    // Only merge cross-dimension: same-dimension findings on nearby lines are different bugs.
+    // Skip when both lack a line number — file-level findings from different dimensions
+    // are about different concerns and should not be merged.
+    const nearDupIdx = result.findIndex(
       (r) =>
         r.file === f.file &&
-        r.dimension === f.dimension &&
-        r.line === f.line &&
-        levenshteinDistance(r.issue ?? "", f.issue ?? "") < 0.3 * Math.max((r.issue ?? "").length, (f.issue ?? "").length)
+        r.dimension !== f.dimension &&
+        (r.line != null || f.line != null) &&
+        Math.abs((r.line ?? -1) - (f.line ?? -1)) <= 2 &&
+        similarIssueText(r.issue ?? "", f.issue ?? "")
     );
 
-    if (nearDup) {
-      // Keep the higher-severity finding
-      const sevRank: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
-      if ((sevRank[f.severity] ?? 0) > (sevRank[nearDup.severity] ?? 0)) {
-        result[result.indexOf(nearDup)] = f;
-      }
+    if (nearDupIdx !== -1) {
+      result[nearDupIdx] = mergeFindings(result[nearDupIdx]!, f);
+      seen.add(key);
       continue;
     }
 
@@ -110,7 +109,62 @@ function deduplicate(findings: Finding[]): Finding[] {
   return result;
 }
 
-const SEVERITY_ORDER: Severity[] = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+/** Fast pre-check: length difference alone can rule out near-duplicate text */
+function similarIssueText(a: string, b: string): boolean {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return true;
+  if (Math.abs(a.length - b.length) / maxLen > 0.4) return false;
+  return levenshteinDistance(a, b) < 0.4 * maxLen;
+}
+
+/** Merge two CSV-encoded strings, deduplicating members */
+function mergeCsv(a: string, b: string): string {
+  return [...new Set([...a.split(", "), ...b.split(", ")])].join(", ");
+}
+
+/** Merge two findings about the same root-cause bug from different dimensions */
+function mergeFindings(a: Finding, b: Finding): Finding {
+  const primary = SEVERITY_ORDER.indexOf(a.severity) <= SEVERITY_ORDER.indexOf(b.severity) ? a : b;
+  const other = primary === a ? b : a;
+
+  const mergedDimension = mergeCsv(primary.dimension, other.dimension);
+  const mergedCategory = mergeCsv(primary.category ?? "", other.category ?? "");
+
+  // Compute novel dimensions once — shared by issue and fix merge
+  const primaryDimSet = new Set(primary.dimension.split(", "));
+  const novelDims = other.dimension.split(", ").filter((d) => !primaryDimSet.has(d));
+  const dimLabel = novelDims.length > 0 ? novelDims.join("/") : other.dimension;
+
+  // Combine issue descriptions — only append novel dimensions
+  let mergedIssue = primary.issue;
+  if (other.issue !== primary.issue && !(primary.issue ?? "").includes(other.issue ?? "")) {
+    mergedIssue += `；${dimLabel}视角：${other.issue}`;
+  }
+
+  // Combine fix suggestions
+  let mergedFix = primary.fix;
+  if (
+    other.fix &&
+    primary.fix &&
+    other.fix !== primary.fix &&
+    other.fix !== "See issue description" &&
+    !(primary.fix ?? "").includes(other.fix)
+  ) {
+    mergedFix += `；${dimLabel}建议：${other.fix}`;
+  }
+
+  return {
+    ...primary,
+    dimension: mergedDimension,
+    category: mergedCategory,
+    issue: mergedIssue,
+    fix: mergedFix,
+    zhBrief: primary.zhBrief ?? other.zhBrief,
+    confidence: Math.max(primary.confidence, other.confidence),
+  };
+}
+
+export const SEVERITY_ORDER: Severity[] = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
 
 function rankBySeverity(findings: Finding[]): Finding[] {
   return [...findings].sort((a, b) => {
