@@ -1,0 +1,77 @@
+{
+  "owner": "test-org",
+  "repo": "demo-app",
+  "number": 42,
+  "title": "Add user authentication middleware",
+  "body": "Implements JWT-based authentication with refresh tokens.\n\n- Adds auth middleware\n- Adds login/logout endpoints\n- Updates user model",
+  "author": "jane-dev",
+  "baseBranch": "main",
+  "headBranch": "feature/auth",
+  "state": "open",
+  "draft": false,
+  "mergeable": "true",
+  "files": [
+    {
+      "filename": "src/auth/jwt-middleware.ts",
+      "status": "added",
+      "additions": 45,
+      "deletions": 0,
+      "changes": 45,
+      "patch": "@@ -0,0 +1,45 @@\n+import { Request, Response, NextFunction } from 'express';\n+import jwt from 'jsonwebtoken';\n+\n+const DEFAULT_SECRET = 'dev-secret-do-not-use-in-prod';\n+\n+export function authMiddleware(req: Request, res: Response, next: NextFunction) {\n+  const token = req.headers.authorization?.replace('Bearer ', '');\n+  if (!token) {\n+    return res.status(401).json({ error: 'No token provided' });\n+  }\n+  try {\n+    const secret = process.env.JWT_SECRET || DEFAULT_SECRET;\n+    const payload = jwt.verify(token, secret);\n+    req.user = payload;\n+    next();\n+  } catch (err) {\n+    return res.status(401).json({ error: 'Invalid token' });\n+  }\n+}"
+    },
+    {
+      "filename": "src/auth/login.ts",
+      "status": "added",
+      "additions": 30,
+      "deletions": 0,
+      "changes": 30,
+      "patch": "@@ -0,0 +1,30 @@\n+import { Request, Response } from 'express';\n+import bcrypt from 'bcrypt';\n+\n+export async function loginHandler(req: Request, res: Response) {\n+  const { username, password } = req.body;\n+\n+  const user = await db.query('SELECT * FROM users WHERE username = ?', [username]);\n+\n+  if (!user) {\n+    return res.status(401).json({ error: 'Invalid credentials' });\n+  }\n+\n+  const match = await bcrypt.compare(password, user.password_hash);\n+  if (!match) {\n+    return res.status(401).json({ error: 'Invalid credentials' });\n+  }\n+\n+  const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '24h' });\n+  res.json({ token });\n+}"
+    },
+    {
+      "filename": "src/utils/format.ts",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 2,
+      "changes": 7,
+      "patch": "@@ -10,6 +10,9 @@\n export function formatDate(date: Date): string {\n-  return date.toISOString();\n+  if (!date) {\n+    return '';\n+  }\n+  return date.toISOString().split('T')[0];\n }"
+    },
+    {
+      "filename": "package-lock.json",
+      "status": "modified",
+      "additions": 200,
+      "deletions": 150,
+      "changes": 350,
+      "patch": ""
+    },
+    {
+      "filename": "README.md",
+      "status": "modified",
+      "additions": 10,
+      "deletions": 0,
+      "changes": 10,
+      "patch": "@@ -1,3 +1,13 @@\n # Demo App\n+\n+## Authentication\n+\n+JWT-based auth is now available. Set `JWT_SECRET` env var.\n+\n+```bash\n+curl -X POST http://localhost:3000/auth/login \\\n+  -H 'Content-Type: application/json' \\\n+  -d '{\"username\":\"admin\",\"password\":\"secret\"}'\n+```"
+    }
+  ],
+  "additions": 290,
+  "deletions": 152,
+  "changedFiles": 5,
+  "commits": [
+    {
+      "sha": "abc123def456",
+      "message": "feat: add JWT auth middleware",
+      "author": "Jane Developer",
+      "date": "2026-05-28T10:00:00Z"
+    },
+    {
+      "sha": "def456ghi789",
+      "message": "feat: add login endpoint with bcrypt password verification",
+      "author": "Jane Developer",
+      "date": "2026-05-28T14:30:00Z"
+    }
+  ],
+  "ciStatus": [
+    { "name": "lint", "status": "completed", "conclusion": "success" },
+    { "name": "test (18.x)", "status": "completed", "conclusion": "success" },
+    { "name": "type-check", "status": "completed", "conclusion": "success" }
+  ]
+}

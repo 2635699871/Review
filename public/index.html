@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI PR 审查助手</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d; --border: #30363d;
+    --fg: #c9d1d9; --fg2: #8b949e; --accent: #58a6ff; --green: #3fb950;
+    --red: #f85149; --yellow: #d29922; --orange: #db6d28;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--fg); height: 100vh; display: flex; }
+  a { color: var(--accent); text-decoration: none; }
+
+  /* 侧边栏 */
+  #sidebar { width: 280px; min-width: 280px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  #sidebar h2 { padding: 16px 16px 12px; font-size: 14px; font-weight: 600; color: var(--fg2); letter-spacing: 0.5px; }
+  #history-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+  .history-item { padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; transition: background 0.15s; }
+  .history-item:hover { background: var(--bg3); }
+  .history-item .hi-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .history-item .hi-meta { font-size: 11px; color: var(--fg2); margin-top: 2px; display: flex; gap: 8px; }
+  .verdict-阻断 { color: var(--red); font-weight: 600; }
+  .verdict-需修改 { color: var(--orange); font-weight: 600; }
+  .verdict-通过 { color: var(--green); font-weight: 600; }
+
+  /* 主区域 */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  #header h1 { font-size: 18px; font-weight: 600; }
+  #header .actions { display: flex; gap: 8px; align-items: center; }
+
+  /* 内容区 */
+  #content { flex: 1; overflow-y: auto; padding: 24px; }
+
+  /* 输入卡片 */
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+  .card h3 { font-size: 15px; margin-bottom: 12px; }
+  .form-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group label { font-size: 12px; color: var(--fg2); font-weight: 500; }
+  input, select { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--fg); font-size: 14px; font-family: inherit; outline: none; }
+  input:focus, select:focus { border-color: var(--accent); }
+  #pr-input { width: 360px; }
+  button { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 8px 20px; font-size: 14px; font-weight: 500; cursor: pointer; transition: opacity 0.15s; }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: var(--bg3); color: var(--fg); }
+
+  /* 进度 */
+  #progress { display: none; }
+  #progress-bar { height: 4px; background: var(--bg3); border-radius: 2px; margin: 12px 0; overflow: hidden; }
+  #progress-bar-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
+  #progress-log { font-size: 13px; color: var(--fg2); }
+  .progress-line { padding: 2px 0; }
+
+  /* 结果 */
+  #results { display: none; }
+  .summary-bar { display: flex; gap: 16px; padding: 12px 16px; background: var(--bg3); border-radius: 6px; margin-bottom: 16px; font-size: 14px; align-items: center; flex-wrap: wrap; }
+  .summary-bar .stat { font-weight: 600; }
+  .finding-group { margin-bottom: 16px; }
+  .finding-group-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: 600; font-size: 14px; user-select: none; }
+  .finding-group-header .count { font-size: 12px; background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 10px; }
+  .finding-group.严重 .finding-group-header { background: rgba(248,81,73,0.15); color: var(--red); }
+  .finding-group.重要 .finding-group-header { background: rgba(219,109,40,0.15); color: var(--orange); }
+  .finding-group.中等 .finding-group-header { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .finding-group.建议 .finding-group-header { background: rgba(139,148,158,0.1); color: var(--fg2); }
+  .finding-group-body { border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px; }
+  .finding-group.collapsed .finding-group-body { display: none; }
+  .finding-group.collapsed .finding-group-header { border-radius: 6px; }
+  .finding-item { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .finding-item:last-child { border-bottom: none; }
+  .finding-item .fi-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+  .finding-item .fi-file { font-family: 'Consolas', 'Cascadia Code', 'Microsoft YaHei', monospace; font-size: 13px; color: var(--accent); }
+  .finding-item .fi-category { font-size: 11px; color: var(--fg2); background: var(--bg3); padding: 1px 6px; border-radius: 3px; }
+  .finding-item .fi-dim { font-size: 11px; color: var(--fg2); }
+  .finding-item .fi-issue { font-size: 14px; margin-bottom: 4px; }
+  .finding-item .fi-fix { font-size: 13px; color: var(--green); }
+  .finding-item .fi-confidence { font-size: 11px; color: var(--fg2); }
+  .fb-btn { font-size: 11px; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg3); color: var(--fg2); cursor: pointer; transition: all 0.15s; }
+  .fb-btn:hover { border-color: var(--fg2); color: var(--fg); }
+  .fb-useful:hover { border-color: var(--green); color: var(--green); }
+  .fb-fp:hover { border-color: var(--red); color: var(--red); }
+  .fb-btn.done { opacity: 0.5; pointer-events: none; }
+
+  /* 设置弹窗 */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 560px; max-width: 90vw; max-height: 85vh; overflow-y: auto; }
+  .modal h2 { font-size: 16px; margin-bottom: 16px; }
+  .modal .form-group { margin-bottom: 14px; }
+  .modal .form-group label { font-size: 12px; color: var(--fg2); font-weight: 500; display: block; margin-bottom: 4px; }
+  .modal .form-group input, .modal .form-group select { width: 100%; }
+  .modal .form-hint { font-size: 11px; color: var(--fg2); margin-top: 3px; }
+  .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+  /* 头部 API 状态 */
+  .api-status { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 12px; cursor: pointer; }
+  .api-status.ready { background: rgba(63,185,80,0.12); color: var(--green); }
+  .api-status.missing { background: rgba(248,81,73,0.12); color: var(--red); }
+  .api-status .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .api-status.ready .dot { background: var(--green); }
+  .api-status.missing .dot { background: var(--red); }
+
+  /* 空状态 */
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--fg2); }
+  .empty-state h2 { font-size: 20px; color: var(--fg); margin-bottom: 8px; }
+  .empty-state p { font-size: 14px; margin-bottom: 4px; }
+
+  /* 分隔条 */
+  #resizer { width: 4px; cursor: col-resize; background: transparent; transition: background 0.15s; }
+  #resizer:hover, #resizer.active { background: var(--accent); }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h2>历史记录</h2>
+  <div id="history-list"></div>
+</div>
+<div id="resizer"></div>
+<div id="main">
+  <div id="header">
+    <h1>AI PR 审查助手</h1>
+    <div class="actions">
+      <span id="api-status" class="api-status missing" onclick="openSettings()" title="配置 API 密钥">
+        <span class="dot"></span> 未配置 API
+      </span>
+      <button class="secondary" onclick="openSettings()">设置</button>
+    </div>
+  </div>
+  <div id="content">
+    <!-- 输入卡片 -->
+    <div class="card">
+      <h3>审查 Pull Request</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="pr-input">PR 标识</label>
+          <input id="pr-input" type="text" placeholder="owner/repo#123 或 GitHub URL" autofocus>
+        </div>
+        <div class="form-group">
+          <label for="dims-select">审查维度</label>
+          <select id="dims-select">
+            <option value="">全部（4 项）</option>
+            <option value="correctness">仅正确性</option>
+            <option value="security">仅安全性</option>
+            <option value="correctness,security">正确性 + 安全性</option>
+            <option value="performance,maintainability">性能 + 可维护性</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="maxfiles-input">最大文件数</label>
+          <input id="maxfiles-input" type="number" value="50" min="1" max="100" style="width:80px">
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap">
+          <input id="deep-toggle" type="checkbox">
+          深度审查
+        </label>
+        <button id="review-btn" onclick="startReview()">开始审查</button>
+      </div>
+    </div>
+
+    <!-- 进度 -->
+    <div id="progress">
+      <div id="progress-log"></div>
+      <div id="progress-bar"><div id="progress-bar-fill"></div></div>
+    </div>
+
+    <!-- 结果 -->
+    <div id="results"></div>
+
+    <!-- 空状态 -->
+    <div id="empty-state" class="empty-state">
+      <h2>AI 代码审查</h2>
+      <p>在上方输入 GitHub PR 标识开始审查</p>
+      <p style="font-size:13px;margin-top:8px">支持格式：<code>facebook/react#28421</code> 或完整的 PR URL</p>
+    </div>
+  </div>
+</div>
+
+<!-- 设置弹窗 -->
+<div id="settings-modal" class="modal-overlay" onclick="if(event.target===this)closeSettings()">
+  <div class="modal">
+    <h2>API 配置</h2>
+
+    <div class="form-group">
+      <label>AI 提供商</label>
+      <select id="provider-select" onchange="onProviderChange()"></select>
+    </div>
+
+    <div class="form-group">
+      <label id="apikey-label">API 密钥</label>
+      <input id="apikey-input" type="password" placeholder="输入 API 密钥...">
+      <div class="form-hint" id="apikey-hint"></div>
+    </div>
+
+    <div class="form-group">
+      <label>API 地址（可选）</label>
+      <input id="baseurl-input" type="text" placeholder="自动使用提供商默认地址">
+      <div class="form-hint" id="baseurl-hint">留空使用默认地址</div>
+    </div>
+
+    <div class="form-group">
+      <label>模型名称（可选）</label>
+      <input id="model-input" type="text" placeholder="自动使用提供商默认模型">
+      <div class="form-hint" id="model-hint">留空使用默认模型</div>
+    </div>
+
+    <hr style="border-color:var(--border);margin:16px 0">
+
+    <div class="form-group">
+      <label>GitHub 令牌（用于私有仓库）</label>
+      <input id="ghtoken-input" type="password" placeholder="ghp_... 或 github_pat_...">
+      <div class="form-hint">在 <a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a> 创建，需要 repo 权限</div>
+    </div>
+
+    <div class="actions">
+      <button class="secondary" onclick="closeSettings()">取消</button>
+      <button onclick="saveSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+
+// 严重级别中文映射
+const SEV_LABEL = { CRITICAL: '严重', HIGH: '重要', MEDIUM: '中等', LOW: '建议' };
+const SEV_ICON = { CRITICAL: '⛔', HIGH: '⚠', MEDIUM: 'ℹ', LOW: '○' };
+const SEV_CSS = { CRITICAL: '严重', HIGH: '重要', MEDIUM: '中等', LOW: '建议' };
+const VERDICT_LABEL = { BLOCK: '阻断', REQUEST_CHANGES: '需修改', COMMENT: '通过' };
+const DIM_LABEL = { correctness: '正确性', security: '安全性', performance: '性能', maintainability: '可维护性' };
+const PHASE_LABEL = { fetch: '获取中', filter: '筛选中', review: '审查中', aggregate: '汇总中', report: '生成报告' };
+
+// ─── 侧边栏拖拽 ─────────────────────────────────────────────
+let resizing = false;
+$('#resizer').addEventListener('mousedown', () => {
+  resizing = true;
+  $('#resizer').classList.add('active');
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+});
+document.addEventListener('mousemove', (e) => {
+  if (!resizing) return;
+  const w = Math.max(200, Math.min(500, e.clientX));
+  $('#sidebar').style.width = w + 'px';
+  $('#sidebar').style.minWidth = w + 'px';
+});
+document.addEventListener('mouseup', () => {
+  if (!resizing) return;
+  resizing = false;
+  $('#resizer').classList.remove('active');
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+});
+
+// ─── 设置 ────────────────────────────────────────────────────
+const SETTINGS_KEY = 'pr-review-settings';
+
+let settings = loadSettings();
+let allProviders = [];
+
+function defaultSettings() {
+  return { provider: 'anthropic', keys: {}, baseUrls: {}, models: {}, githubToken: '' };
+}
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    return raw ? { ...defaultSettings(), ...JSON.parse(raw) } : defaultSettings();
+  } catch { return defaultSettings(); }
+}
+
+function saveSettingsToStore() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+async function loadProviders() {
+  try {
+    const resp = await fetch('/api/providers');
+    allProviders = await resp.json();
+  } catch (_) {
+    allProviders = [];
+  }
+}
+
+function getProviderInfo(id) {
+  return allProviders.find(p => p.id === id) || null;
+}
+
+function openSettings() {
+  const sel = $('#provider-select');
+  if (sel.options.length === 0 && allProviders.length > 0) {
+    sel.innerHTML = allProviders.map(p =>
+      `<option value="${esc(p.id)}">${esc(p.label)}${p.defaultModel ? ' (' + p.defaultModel + ')' : ''}</option>`
+    ).join('');
+  }
+  sel.value = settings.provider || 'anthropic';
+  onProviderChange();
+  document.getElementById('ghtoken-input').value = settings.githubToken || '';
+  $('#settings-modal').classList.add('open');
+}
+
+function closeSettings() {
+  $('#settings-modal').classList.remove('open');
+}
+
+function onProviderChange() {
+  const pid = $('#provider-select').value;
+  const info = getProviderInfo(pid);
+
+  document.getElementById('apikey-input').value = settings.keys[pid] || '';
+  document.getElementById('baseurl-input').value = settings.baseUrls[pid] || '';
+  document.getElementById('model-input').value = settings.models[pid] || '';
+
+  const prefix = info?.apiKeyPrefix || '';
+  document.getElementById('apikey-input').placeholder = prefix ? prefix + '...' : '输入 API 密钥...';
+  document.getElementById('baseurl-input').placeholder = info?.baseUrl || '输入 API 地址';
+  document.getElementById('model-input').placeholder = info?.defaultModel || '输入模型名称';
+
+  const hintEl = document.getElementById('apikey-hint');
+  if (info?.website) {
+    hintEl.innerHTML = `在 <a href="${esc(info.website)}" target="_blank">${esc(info.website.replace('https://', ''))}</a> 获取密钥`;
+  } else {
+    hintEl.innerHTML = '';
+  }
+}
+
+function saveSettings() {
+  const pid = $('#provider-select').value;
+  settings.provider = pid;
+
+  const keyVal = document.getElementById('apikey-input').value.trim();
+  const urlVal = document.getElementById('baseurl-input').value.trim();
+  const modelVal = document.getElementById('model-input').value.trim();
+
+  if (keyVal) settings.keys[pid] = keyVal;
+  else delete settings.keys[pid];
+  if (urlVal) settings.baseUrls[pid] = urlVal;
+  else delete settings.baseUrls[pid];
+  if (modelVal) settings.models[pid] = modelVal;
+  else delete settings.models[pid];
+
+  settings.githubToken = document.getElementById('ghtoken-input').value.trim();
+
+  saveSettingsToStore();
+  updateApiStatus();
+  closeSettings();
+}
+
+function getActiveApiKey() {
+  return settings.keys[settings.provider] || '';
+}
+
+function getActiveBaseUrl() {
+  return settings.baseUrls[settings.provider] || '';
+}
+
+function getActiveModel() {
+  return settings.models[settings.provider] || '';
+}
+
+function updateApiStatus() {
+  const statusEl = $('#api-status');
+  const hasKey = !!getActiveApiKey();
+  if (hasKey) {
+    statusEl.className = 'api-status ready';
+    const info = getProviderInfo(settings.provider);
+    const name = info?.label || settings.provider;
+    statusEl.innerHTML = `<span class="dot"></span> ${esc(name)} 已配置`;
+  } else {
+    statusEl.className = 'api-status missing';
+    statusEl.innerHTML = '<span class="dot"></span> 未配置 API';
+  }
+}
+
+loadProviders();
+updateApiStatus();
+
+// ─── 历史记录 ───────────────────────────────────────────────
+async function loadHistory() {
+  try {
+    const resp = await fetch('/api/history');
+    const entries = await resp.json();
+    const list = $('#history-list');
+    if (entries.length === 0) {
+      list.innerHTML = '<div style="padding:16px;color:var(--fg2);font-size:13px">暂无审查记录</div>';
+      return;
+    }
+    list.innerHTML = entries.map(e => `
+      <div class="history-item" onclick="loadSavedResult('${e.owner}','${e.repo}',${e.number})">
+        <div class="hi-title">${esc(e.title)}</div>
+        <div class="hi-meta">
+          <span>${e.owner}/${e.repo}#${e.number}</span>
+          <span class="verdict-${VERDICT_LABEL[e.verdict] || e.verdict}">${VERDICT_LABEL[e.verdict] || e.verdict}</span>
+          <span>${e.findingsCount} 项发现</span>
+        </div>
+      </div>
+    `).join('');
+  } catch (_) {}
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+async function loadSavedResult(owner, repo, number) {
+  try {
+    const resp = await fetch(`/api/history/${owner}/${repo}/${number}`);
+    if (!resp.ok) return;
+    const result = await resp.json();
+    renderResults(result);
+  } catch (_) {}
+}
+
+// ─── 审查 ──────────────────────────────────────────────────
+async function startReview() {
+  const pr = $('#pr-input').value.trim();
+  if (!pr) return;
+
+  const btn = $('#review-btn');
+  btn.disabled = true;
+  btn.textContent = '审查中...';
+
+  $('#empty-state').style.display = 'none';
+  $('#results').style.display = 'none';
+  $('#progress').style.display = 'block';
+  $('#progress-log').innerHTML = '';
+  $('#progress-bar-fill').style.width = '0%';
+
+  const body = {
+    pr,
+    deep: $('#deep-toggle')?.checked ?? false,
+    output: 'all',
+    dimensions: $('#dims-select').value || undefined,
+    maxFiles: parseInt($('#maxfiles-input').value) || 50,
+    provider: settings.provider,
+    apiKey: getActiveApiKey() || undefined,
+    apiBaseUrl: getActiveBaseUrl() || undefined,
+    modelOverride: getActiveModel() || undefined,
+    githubToken: settings.githubToken || undefined,
+  };
+
+  try {
+    const resp = await fetch('/api/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      let event = '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          event = line.slice(7);
+        } else if (line.startsWith('data: ')) {
+          const data = JSON.parse(line.slice(6));
+          handleSSE(event, data);
+        }
+      }
+    }
+  } catch (err) {
+    addProgress('error', '连接失败：' + err.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '开始审查';
+}
+
+function handleSSE(event, data) {
+  switch (event) {
+    case 'progress':
+      addProgress(data.phase, data.message);
+      if (data.percent != null) {
+        $('#progress-bar-fill').style.width = data.percent + '%';
+      }
+      break;
+    case 'done':
+      addProgress('done', '审查完成');
+      $('#progress-bar-fill').style.width = '100%';
+      renderResults(data.result);
+      loadHistory();
+      break;
+    case 'error':
+      addProgress('error', data.message);
+      break;
+  }
+}
+
+function addProgress(phase, msg) {
+  const div = document.createElement('div');
+  div.className = 'progress-line';
+  const icon = phase === 'error' ? '✗' : phase === 'done' ? '✓' : '●';
+  const color = phase === 'error' ? 'var(--red)' : phase === 'done' ? 'var(--green)' : 'var(--fg2)';
+  div.innerHTML = `<span style="color:${color};margin-right:6px">${icon}</span>${esc(msg)}`;
+  $('#progress-log').appendChild(div);
+  $('#content').scrollTop = $('#content').scrollHeight;
+}
+
+// ─── 渲染结果 ────────────────────────────────────────────────
+function renderResults(result) {
+  $('#progress').style.display = 'none';
+  $('#empty-state').style.display = 'none';
+  $('#results').style.display = 'block';
+
+  const r = result;
+  const counts = { CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0 };
+  r.findings.forEach(f => counts[f.severity]++);
+
+  let html = '';
+
+  // 摘要栏
+  html += `<div class="summary-bar">
+    <span><strong>${esc(r.pr.title)}</strong></span>
+    <span class="stat">${r.pr.owner}/${r.pr.repo}#${r.pr.number}</span>
+    <span>${r.pr.changedFiles} 文件 (+${r.pr.additions}/-${r.pr.deletions})</span>
+    <span class="stat verdict-${VERDICT_LABEL[r.verdict] || r.verdict}">${VERDICT_LABEL[r.verdict] || r.verdict}</span>
+    <span style="color:var(--fg2)">${Math.round(r.actionableRate*100)}% 可操作</span>
+  </div>`;
+
+  // 按严重级别分组
+  const sevs = ['CRITICAL','HIGH','MEDIUM','LOW'];
+  for (const sev of sevs) {
+    const group = r.findings.filter(f => f.severity === sev);
+    if (group.length === 0) continue;
+
+    html += `<div class="finding-group ${SEV_CSS[sev]}">`;
+    html += `<div class="finding-group-header" onclick="this.parentElement.classList.toggle('collapsed')">
+      ${SEV_ICON[sev]}
+      ${SEV_LABEL[sev]} <span class="count">${group.length}</span>
+    </div>`;
+    html += `<div class="finding-group-body">`;
+
+    let idx = 0;
+    for (const f of group) {
+      const fid = `finding-${sev}-${idx++}`;
+      html += `<div class="finding-item" id="${fid}">
+        <div class="fi-header">
+          <span class="fi-file">${esc(f.file)}${f.line ? ':'+f.line : ''}</span>
+          <span class="fi-category">${esc(f.category)}</span>
+          <span class="fi-dim">${DIM_LABEL[f.dimension] || f.dimension}</span>
+        </div>
+        <div class="fi-issue">${esc(f.issue)}</div>
+        ${f.fix && f.fix !== 'See issue description' ? `<div class="fi-fix">修复建议：${esc(f.fix)}</div>` : ''}
+        <div style="display:flex;align-items:center;gap:12px;margin-top:6px">
+          <div class="fi-confidence">置信度：${Math.round(f.confidence * 100)}%</div>
+          <button class="fb-btn fb-useful" onclick="sendFeedback('${esc(f.file)}','${esc(f.category)}','tp','${fid}')" title="有用">&#128077; 有用</button>
+          <button class="fb-btn fb-fp" onclick="sendFeedback('${esc(f.file)}','${esc(f.category)}','fp','${fid}')" title="误报">&#128078; 误报</button>
+          <span class="fb-ok" id="${fid}-ok" style="display:none;font-size:12px;color:var(--green)">&#10003; 已记录</span>
+        </div>
+      </div>`;
+    }
+
+    html += `</div></div>`;
+  }
+
+  if (r.findings.length === 0) {
+    html += `<div class="card"><p style="color:var(--green)">在 ${r.dimensionsRun.length} 个审查维度中未发现问题。</p></div>`;
+  }
+
+  const dimNames = r.dimensionsRun.map(d => DIM_LABEL[d] || d).join('、');
+  html += `<div style="font-size:12px;color:var(--fg2);text-align:center;padding:16px">
+    审查时间：${r.reviewedAt} · 审查维度：${dimNames}
+  </div>`;
+
+  $('#results').innerHTML = html;
+}
+
+// ─── 反馈 ──────────────────────────────────────────────────
+async function sendFeedback(file, category, label, fid) {
+  try {
+    await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file, category, label, timestamp: new Date().toISOString() }),
+    });
+    // Disable buttons and show confirmation
+    const el = document.getElementById(fid);
+    if (el) {
+      el.querySelectorAll('.fb-btn').forEach(b => b.classList.add('done'));
+      const ok = document.getElementById(fid + '-ok');
+      if (ok) ok.style.display = 'inline';
+    }
+  } catch (_) {}
+}
+
+// ─── 键盘快捷键 ──────────────────────────────────────────────
+$('#pr-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    startReview();
+  }
+});
+
+// 初始化
+loadHistory();
+</script>
+</body>
+</html>
