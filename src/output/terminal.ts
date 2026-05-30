@@ -107,6 +107,9 @@ export function renderTerminal(result: ReviewResult): string {
       if (finding.fix && finding.fix !== "See issue description") {
         lines.push(chalk.green(`  Fix:     ${finding.fix}`));
       }
+      if (finding.zhBrief) {
+        lines.push(chalk.gray(`  简评:    ${finding.zhBrief}`));
+      }
     }
   }
 
