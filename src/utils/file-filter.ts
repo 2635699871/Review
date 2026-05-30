@@ -176,19 +176,35 @@ export function isHighRisk(filename: string): boolean {
  */
 export function filterFiles(
   files: PRFile[],
-  options?: { maxFiles?: number }
+  options?: { maxFiles?: number; excludePatterns?: string[] }
 ): FileCategory {
   const result: FileCategory = {
     filtered: [],
     excluded: [],
     byType: { source: [], test: [], config: [], doc: [] },
     highRisk: [],
-  };for (const file of files) {
+  };
+
+  // Compile custom exclude patterns into regex
+  const customPatterns = (options?.excludePatterns ?? []).map(
+    (p) => new RegExp(p.replace(/\*/g, ".*").replace(/\?/g, "."), "i")
+  );
+
+  for (const file of files) {
     const { excluded } = shouldExclude(file);
     if (excluded) {
       result.excluded.push(file);
       continue;
-    }result.filtered.push(file);
+    }
+
+    // Check custom exclude patterns
+    const customExcluded = customPatterns.some((p) => p.test(file.filename));
+    if (customExcluded) {
+      result.excluded.push(file);
+      continue;
+    }
+
+    result.filtered.push(file);
     const type = categorizeFile(file);
     result.byType[type].push(file);
 

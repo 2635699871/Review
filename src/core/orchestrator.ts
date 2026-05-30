@@ -50,7 +50,10 @@ export async function runReview(config: ReviewConfig): Promise<ReviewResult | nu
   // ─── Phase 2: Filter & Categorize ─────────────────────
   notify({ phase: "filter", message: "Filtering and categorizing files..." });
 
-  const fileCategory = filterFiles(prData.files, { maxFiles: config.maxFiles });
+  const fileCategory = filterFiles(prData.files, {
+    maxFiles: config.maxFiles,
+    excludePatterns: config.exclude,
+  });
 
   notify({
     phase: "filter",
