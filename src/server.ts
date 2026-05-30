@@ -31,7 +31,7 @@ export function createApp() {
   // ─── Review endpoint (SSE stream) ─────────────────────
   app.post("/api/review", async (req: Request, res: Response) => {
     const {
-      pr, deep, output, dimensions, maxFiles,
+      pr, deep, output, dimensions, maxFiles, exclude,
       provider, apiKey, apiBaseUrl, modelOverride, githubToken,
     } = req.body as Record<string, unknown>;
 
@@ -61,6 +61,7 @@ export function createApp() {
           output: (typeof output === "string" ? output : "all") as ReviewConfig["output"],
           dimensions: typeof dimensions === "string" ? dimensions : undefined,
           maxFiles: maxFiles != null ? String(maxFiles) : undefined,
+          exclude: typeof exclude === "string" ? exclude : undefined,
           verbose: false,
         }),
         provider: (typeof provider === "string" ? provider : "anthropic") as ProviderType,

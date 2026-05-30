@@ -48,6 +48,7 @@ export function buildConfig(options: {
   apiKey?: string;
   modelOverride?: string;
   apiBaseUrl?: string;
+  exclude?: string;
 }): ReviewConfig {
   const prIdentifier = parsePRIdentifier(options.pr);
   if (!prIdentifier) {
@@ -64,6 +65,9 @@ export function buildConfig(options: {
       ? (options.dimensions.split(",").map((d) => d.trim()) as Dimension[])
       : [...ALL_DIMENSIONS],
     maxFiles: options.maxFiles ? parseInt(options.maxFiles, 10) : 50,
+    exclude: options.exclude
+      ? options.exclude.split(",").map((p) => p.trim()).filter(Boolean)
+      : undefined,
     verbose: options.verbose ?? false,
     provider: options.provider as ReviewConfig["provider"],
     apiKey: options.apiKey,
