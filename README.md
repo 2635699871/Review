@@ -191,6 +191,47 @@ tests/
 
 Custom OpenAI-compatible endpoints supported via `--provider` with `--api-base-url` and `--model`.
 
+## Dependencies
+
+### Runtime
+
+| Package | Purpose | Why |
+|---------|---------|-----|
+| `@anthropic-ai/sdk` | Anthropic Claude API client | Native SDK for prompt caching + thinking mode support |
+| `chalk` | Terminal color output | Rich formatting for review findings display |
+| `commander` | CLI argument parsing | Standard Node.js CLI framework |
+| `express` | Web server | SSE streaming for Web UI |
+| `ora` | Terminal spinner | Progress indication during review |
+| `zod` | Schema validation | JSON schema parsing for LLM responses |
+
+### Development
+
+| Package | Purpose |
+|---------|---------|
+| `typescript` | Type checking |
+| `tsx` | TypeScript execution (no build step) |
+| `vitest` | Test runner |
+| `eslint` | Linting |
+| `prettier` | Code formatting |
+| `@types/express`, `@types/node` | Type definitions |
+
+### Original Work Boundary
+
+All code under `src/` is original work developed during the competition window (May 29–31, 2026). The project uses the above open-source libraries as infrastructure (API clients, CLI framework, web server) — none of the review logic, pipeline orchestration, prompt engineering, confidence gating, or multi-provider routing is adapted from third-party code.
+
+## Future Directions
+
+- **RAG-enhanced context** — Index repository conventions, past reviews, and project-specific patterns via vector store to ground each review in repo-specific knowledge
+- **Review quality feedback loop** — Learn from user feedback (false positive / false negative labels already stored) to tune confidence thresholds and suppress recurring noise patterns
+- **Incremental review** — Track which files/findings were already reviewed in prior PRs; skip re-review of unchanged code and surface only net-new findings
+- **Custom dimension plugins** — Allow teams to define their own review dimensions (e.g., i18n, a11y, regulatory compliance) as pluggable prompt modules
+- **Multi-model ensemble** — Run the same dimension across different models and cross-validate findings to reduce single-model blind spots
+- **IDE integration** — VS Code / JetBrains extension to trigger reviews and view findings directly in the editor without leaving the coding flow
+
+## Originality Statement
+
+本项目（pr-review-assistant）在 2026 年 5 月 29 日至 31 日比赛期间从零自主开发，未复用任何个人旧代码或第三方 AI Review 工具的核心逻辑。所有代码原创，无抄袭。
+
 ## License
 
 MIT
