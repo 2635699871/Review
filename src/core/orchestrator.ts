@@ -6,10 +6,12 @@ import {
   buildReviewContext,
   buildEnrichedDiffText,
   buildMetadataText,
+  buildCrossFileContext,
 } from "../pipeline/context-builder.js";
-import { buildReviewerSystemPrompt, buildSummarySystemPrompt, getDimensionLabel } from "../models/prompts.js";
+import { buildReviewerSystemPrompt, buildSummarySystemPrompt, buildVerifySystemPrompt, buildVerifyFindingInfo, getDimensionLabel } from "../models/prompts.js";
 import { getProvider, getDefaultModel, getDefaultBaseUrl } from "../models/provider-registry.js";
 import { aggregate, determineVerdict, SEVERITY_ORDER } from "../pipeline/aggregator.js";
+import { verifyFindings } from "../pipeline/verifier.js";
 import { renderTerminal } from "../output/terminal.js";
 import { saveReport, submitGitHubReview } from "../output/markdown.js";
 
@@ -66,15 +68,8 @@ export async function runReview(config: ReviewConfig): Promise<ReviewResult | nu
   }
 
   const budget = calculateBudget(prData.changedFiles, config);
-  const activeDimensions = config.dimensions.slice(0, budget.dimensions);
 
   // ─── Phase 3: Build Context + Review ──────────────────
-  notify({
-    phase: "review",
-    message: `Starting ${activeDimensions.length}-dimension review...`,
-    detail: activeDimensions.map((d) => getDimensionLabel(d) || d).join(", "),
-    percent: 0,
-  });
 
   // Build enriched context (full files for high-risk, conventions for deep mode)
   const token = config.githubToken ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? "";
@@ -83,6 +78,32 @@ export async function runReview(config: ReviewConfig): Promise<ReviewResult | nu
     files: fileCategory.filtered,
     deep: config.deep,
     gitHubToken: token,
+  });
+
+  // Conditional dimension filtering
+  let applicableDimensions = [...config.dimensions];
+
+  if (ctx.totalDeletions === 0 && applicableDimensions.includes("removed-behavior")) {
+    applicableDimensions = applicableDimensions.filter(d => d !== "removed-behavior");
+    notify({ phase: "filter", message: "Skipping removed-behavior: PR has no deletions" });
+  }
+
+  let crossFileContext: string | null = null;
+  if (applicableDimensions.includes("cross-file")) {
+    crossFileContext = buildCrossFileContext(ctx.filteredFiles, ctx.fullFiles);
+    if (!crossFileContext) {
+      applicableDimensions = applicableDimensions.filter(d => d !== "cross-file");
+      notify({ phase: "filter", message: "Skipping cross-file: no external callers found for changed functions" });
+    }
+  }
+
+  const activeDimensions = applicableDimensions.slice(0, budget.dimensions);
+
+  notify({
+    phase: "review",
+    message: `Starting ${activeDimensions.length}-dimension review...`,
+    detail: activeDimensions.map((d) => getDimensionLabel(d) || d).join(", "),
+    percent: 0,
   });
 
   const metadataText = buildMetadataText({
@@ -103,23 +124,38 @@ export async function runReview(config: ReviewConfig): Promise<ReviewResult | nu
     budget.maxDiffSize
   );
 
-  // Create LLM client based on provider
-  const llmClient = createClient(config, budget);
+  // Build per-dimension extra context (cross-file dimension gets caller snippets)
+  const dimensionExtraContext = new Map<string, string>();
+  if (crossFileContext && activeDimensions.includes("cross-file")) {
+    dimensionExtraContext.set("cross-file", crossFileContext);
+  }
+
+  // Create separate LLM clients for review (finder) and verify (judge) phases.
+  // This lets users pair a high-recall cheap model (e.g., DeepSeek Flash) for
+  // finding bugs with a precise model (e.g., DeepSeek Pro) for verifying them.
+  const reviewClient = createClient(config, budget, config.reviewModel ?? config.modelOverride);
+  const verifyClient = config.verifyModel
+    ? createClient(config, budget, config.verifyModel)
+    : reviewClient;
 
   // Run dimensions with warmup-first-then-parallel strategy for prompt caching
-  const allFindings = await runDimensionsParallel(
-    llmClient,
+  const rawFindings = await runDimensionsParallel(
+    reviewClient,
     activeDimensions,
     diffText,
     metadataText,
     ctx.repoConventions,
-    notify
+    notify,
+    dimensionExtraContext,
   );
+
+  // Verify code_quote grounding — adjust confidence dynamically
+  const verifiedFindings = verifyFindings(rawFindings, diffText, fileCategory.filtered);
 
   // ─── Phase 4: Aggregate ───────────────────────────────
   notify({ phase: "aggregate", message: "Aggregating and filtering findings...", percent: 60 });
 
-  const { findings: ranked, dropped, downgraded, actionableRate } = aggregate(allFindings);
+  const { findings: ranked, dropped, downgraded, actionableRate } = aggregate(verifiedFindings);
 
   notify({
     phase: "aggregate",
@@ -130,14 +166,22 @@ export async function runReview(config: ReviewConfig): Promise<ReviewResult | nu
 
   const verdict = determineVerdict(ranked);
 
-  // ─── Phase 4.5: Chinese Summary ─────────────────────────
+  // ─── Phase 4.5: LLM Verification ────────────────────────
+  const verifiedRanked =
+    ranked.length > 0
+      ? await verifyFindingsLLM(verifyClient, diffText, ranked, notify)
+      : ranked;
+
+  const finalVerdict = determineVerdict(verifiedRanked);
+
+  // ─── Phase 4.6: Chinese Summary ─────────────────────────
   notify({ phase: "aggregate", message: "Generating Chinese summary...", percent: 85 });
 
   let zhSummary: string | undefined;
   try {
-    const summaryPrompt = buildSummarySystemPrompt(verdict, ranked.length);
-    const findingsSummary = buildFindingsSummary(ranked);
-    zhSummary = await llmClient.summarize(summaryPrompt, findingsSummary, metadataText);
+    const summaryPrompt = buildSummarySystemPrompt(finalVerdict, verifiedRanked.length);
+    const findingsSummary = buildFindingsSummary(verifiedRanked);
+    zhSummary = await verifyClient.summarize(summaryPrompt, findingsSummary, metadataText);
   } catch (error) {
     notify({
       phase: "aggregate",
@@ -151,10 +195,10 @@ export async function runReview(config: ReviewConfig): Promise<ReviewResult | nu
   const dimSummary = activeDimensions.map((d) => getDimensionLabel(d) || d).join(", ");
   const reviewResult: ReviewResult = {
     pr: prData,
-    findings: ranked,
+    findings: verifiedRanked,
     summary: `This PR changes ${prData.changedFiles} files (+${prData.additions}/-${prData.deletions}), reviewed across ${activeDimensions.length} dimensions: ${dimSummary}.`,
     zhSummary,
-    verdict,
+    verdict: finalVerdict,
     actionableRate,
     reviewedAt: new Date().toISOString(),
     dimensionsRun: activeDimensions,
@@ -216,12 +260,18 @@ function parseId(config: ReviewConfig): { owner: string; repo: string; number: n
   throw new Error(`Invalid PR identifier: ${config.prIdentifier}`);
 }
 
-/** Create the appropriate LLM client */
-function createClient(config: ReviewConfig, budget: { thinkingTokens: number }): LLMClient {
+/** Create an LLM client for a specific pipeline phase.
+ *  @param modelOverride — phase-specific model override (reviewModel or verifyModel)
+ */
+function createClient(
+  config: ReviewConfig,
+  budget: { thinkingTokens: number },
+  modelOverride?: string,
+): LLMClient {
   const providerId = config.provider ?? "anthropic";
   const entry = getProvider(providerId);
 
-  // API key: explicit > env var (per provider) > empty
+  // API key: explicit > provider env var > empty
   const apiKey =
     config.apiKey ??
     (entry ? process.env[entry.envKeyName] : undefined) ??
@@ -233,8 +283,9 @@ function createClient(config: ReviewConfig, budget: { thinkingTokens: number }):
     getDefaultBaseUrl(providerId) ??
     "";
 
-  // Model: explicit > registry default > empty
+  // Model: phase-specific > explicit modelOverride > registry default > empty
   const model =
+    modelOverride ??
     config.modelOverride ??
     getDefaultModel(providerId) ??
     "";
@@ -263,9 +314,21 @@ async function runDimensionsParallel(
   diffText: string,
   metadataText: string,
   repoConventions: string | undefined,
-  notify: (event: any) => void
+  notify: (event: any) => void,
+  dimensionExtraContext?: Map<string, string>,
 ): Promise<Finding[]> {
   if (dimensions.length === 0) return [];
+
+  // Build dimension-specific metadata (appends extra context for cross-file etc.)
+  function dimMetadata(dim: string): string {
+    const extra = dimensionExtraContext?.get(dim);
+    if (!extra) return metadataText;
+    return `${metadataText}
+
+## Cross-File Context
+
+${extra}`;
+  }
 
   // If only one dimension, just run it
   if (dimensions.length === 1) {
@@ -278,7 +341,7 @@ async function runDimensionsParallel(
       return await client.review(
         buildReviewerSystemPrompt(dimensions[0]!, repoConventions),
         diffText,
-        metadataText,
+        dimMetadata(dimensions[0]!),
         dimensions[0]!
       );
     } catch (error) {
@@ -304,7 +367,7 @@ async function runDimensionsParallel(
     const firstFindings = await client.review(
       buildReviewerSystemPrompt(first!, repoConventions),
       diffText,
-      metadataText,
+      dimMetadata(first!),
       first!
     );
     allFindings.push(...firstFindings);
@@ -333,7 +396,7 @@ async function runDimensionsParallel(
         client.review(
           buildReviewerSystemPrompt(dim, repoConventions),
           diffText,
-          metadataText,
+          dimMetadata(dim),
           dim
         ).then((findings) => ({ dim, findings, index: i }))
       )
@@ -494,6 +557,75 @@ async function fetchPRData(
     })),
     ciStatus,
   };
+}
+
+/** Run independent LLM verification on each finding in parallel.
+ *  Returns findings with CONFIRMED boosted, PLAUSIBLE kept, REFUTED dropped. */
+async function verifyFindingsLLM(
+  client: LLMClient,
+  diffText: string,
+  findings: Finding[],
+  notify: (event: any) => void
+): Promise<Finding[]> {
+  notify({
+    phase: "aggregate",
+    message: `Verifying ${findings.length} finding(s) independently...`,
+    percent: 82,
+  });
+
+  const systemPrompt = buildVerifySystemPrompt();
+
+  const results = await Promise.allSettled(
+    findings.map(async (f) => {
+      const info = buildVerifyFindingInfo(f);
+      const verdict = await client.verify(systemPrompt, info, diffText);
+      return { finding: f, verdict };
+    })
+  );
+
+  let confirmed = 0;
+  let plausible = 0;
+  let refuted = 0;
+
+  const kept: Finding[] = [];
+  for (const result of results) {
+    if (result.status !== "fulfilled") {
+      // Keep findings that failed verification (don't lose data on API error)
+      plausible++;
+      continue;
+    }
+
+    const { finding, verdict } = result.value;
+    const upper = verdict.toUpperCase();
+
+    if (upper.startsWith("CONFIRMED")) {
+      confirmed++;
+      kept.push({
+        ...finding,
+        confidence: Math.min(1.0, Math.round((finding.confidence + 0.10) * 100) / 100),
+      });
+    } else if (upper.startsWith("REFUTED")) {
+      refuted++;
+      // Keep rather than drop — verifier can be wrong. Downgrade to LOW and reduce confidence.
+      kept.push({
+        ...finding,
+        severity: "LOW",
+        confidence: Math.max(0.1, Math.round((finding.confidence - 0.20) * 100) / 100),
+        issue: `${finding.issue}`,
+      });
+    } else {
+      plausible++;
+      kept.push(finding);
+    }
+  }
+
+  notify({
+    phase: "aggregate",
+    message: `Verification: ${confirmed} confirmed, ${plausible} plausible, ${refuted} refuted`,
+    percent: 84,
+  });
+
+  return kept;
 }
 
 /** Serialize findings into compact text for the Chinese summary LLM call */

@@ -24,7 +24,7 @@ export function aggregate(
   allFindings: Finding[],
   options?: { targetActionableRate?: number }
 ): AggregateResult {
-  const target = options?.targetActionableRate ?? 0.6;
+  const target = options?.targetActionableRate ?? 0.35;
 
   // Step 1: Deduplicate
   const deduped = deduplicate(allFindings);
@@ -84,18 +84,7 @@ function deduplicate(findings: Finding[]): Finding[] {
     const key = `${f.file ?? "?"}:${f.line ?? "N"}:${f.category ?? "?"}`;
     if (seen.has(key)) continue;
 
-    // Only merge cross-dimension: same-dimension findings on nearby lines are different bugs.
-    // Skip when both lack a line number — file-level findings from different dimensions
-    // are about different concerns and should not be merged.
-    const nearDupIdx = result.findIndex(
-      (r) =>
-        r.file === f.file &&
-        r.dimension !== f.dimension &&
-        (r.line != null || f.line != null) &&
-        Math.abs((r.line ?? -1) - (f.line ?? -1)) <= 2 &&
-        similarIssueText(r.issue ?? "", f.issue ?? "")
-    );
-
+    const nearDupIdx = findNearDuplicate(f, result);
     if (nearDupIdx !== -1) {
       result[nearDupIdx] = mergeFindings(result[nearDupIdx]!, f);
       seen.add(key);
@@ -109,12 +98,56 @@ function deduplicate(findings: Finding[]): Finding[] {
   return result;
 }
 
+/** Find a near-duplicate in `existing` for `f`. Returns index or -1. */
+function findNearDuplicate(f: Finding, existing: Finding[]): number {
+  // 1) Same code quoted → strongest signal. Models may report different line
+  //    numbers for the identical bug; the code quote is authoritative.
+  if (f.codeQuote) {
+    const codeIdx = existing.findIndex(
+      (r) =>
+        r.file === f.file &&
+        r.dimension !== f.dimension &&
+        r.codeQuote &&
+        similarCodeQuote(r.codeQuote, f.codeQuote!)
+    );
+    if (codeIdx !== -1) return codeIdx;
+  }
+
+  // 2) Nearby line + similar issue text — classic cross-dimension merge.
+  //    Tolerance widened from 2 to 5 to handle model line-estimation variance.
+  return existing.findIndex(
+    (r) =>
+      r.file === f.file &&
+      r.dimension !== f.dimension &&
+      (r.line != null || f.line != null) &&
+      Math.abs((r.line ?? -1) - (f.line ?? -1)) <= 5 &&
+      similarIssueText(r.issue ?? "", f.issue ?? "")
+  );
+}
+
+/** Normalize a code quote for comparison: strip whitespace and unify quotes */
+function normalizeCode(s: string): string {
+  return s.replace(/\\"/g, '"').replace(/\s+/g, " ").trim();
+}
+
+/** True when two code quotes are near-identical after normalization */
+function similarCodeQuote(a: string, b: string): boolean {
+  const na = normalizeCode(a);
+  const nb = normalizeCode(b);
+  if (na === nb) return true;
+  // One may be a substring of the other (different quoting range)
+  if (na.includes(nb) || nb.includes(na)) return true;
+  const maxLen = Math.max(na.length, nb.length);
+  if (maxLen === 0) return false;
+  return levenshteinDistance(na, nb) / maxLen < 0.3;
+}
+
 /** Fast pre-check: length difference alone can rule out near-duplicate text */
 function similarIssueText(a: string, b: string): boolean {
   const maxLen = Math.max(a.length, b.length);
   if (maxLen === 0) return true;
   if (Math.abs(a.length - b.length) / maxLen > 0.4) return false;
-  return levenshteinDistance(a, b) < 0.4 * maxLen;
+  return levenshteinDistance(a, b) / maxLen < 0.5;
 }
 
 /** Merge two CSV-encoded strings, deduplicating members */

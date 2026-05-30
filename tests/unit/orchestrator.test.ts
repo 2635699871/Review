@@ -107,18 +107,18 @@ describe("ciSummary", () => {
 // Dimension warmup/burst logic test
 describe("dimension execution strategy", () => {
   it("splits dimensions into warmup + burst groups", () => {
-    const dimensions = ["correctness", "security", "performance", "maintainability"] as const;
+    const dimensions = ["line-scan", "efficiency", "simplification", "altitude"] as const;
     const [first, ...rest] = dimensions;
 
-    expect(first).toBe("correctness");
-    expect(rest).toEqual(["security", "performance", "maintainability"]);
+    expect(first).toBe("line-scan");
+    expect(rest).toEqual(["efficiency", "simplification", "altitude"]);
   });
 
   it("handles single dimension gracefully", () => {
-    const dimensions = ["security"] as const;
+    const dimensions = ["line-scan"] as const;
     const [first, ...rest] = dimensions;
 
-    expect(first).toBe("security");
+    expect(first).toBe("line-scan");
     expect(rest).toHaveLength(0);
   });
 });

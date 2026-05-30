@@ -1,10 +1,13 @@
 import type { ReviewConfig, Dimension } from "../types.js";
 
 const ALL_DIMENSIONS: Dimension[] = [
-  "correctness",
-  "security",
-  "performance",
-  "maintainability",
+  "line-scan",
+  "removed-behavior",
+  "cross-file",
+  "reuse",
+  "simplification",
+  "efficiency",
+  "altitude",
 ];
 
 /** Parse PR identifier from user input (URL or shorthand) */
@@ -48,6 +51,8 @@ export function buildConfig(options: {
   apiKey?: string;
   modelOverride?: string;
   apiBaseUrl?: string;
+  reviewModel?: string;
+  verifyModel?: string;
   exclude?: string;
 }): ReviewConfig {
   const prIdentifier = parsePRIdentifier(options.pr);
@@ -73,5 +78,7 @@ export function buildConfig(options: {
     apiKey: options.apiKey,
     modelOverride: options.modelOverride,
     apiBaseUrl: options.apiBaseUrl,
+    reviewModel: options.reviewModel,
+    verifyModel: options.verifyModel,
   };
 }

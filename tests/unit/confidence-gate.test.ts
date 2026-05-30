@@ -5,7 +5,7 @@ import type { Finding } from "../../src/types.js";
 function makeFinding(overrides: Partial<Finding> = {}): Finding {
   return {
     severity: "MEDIUM",
-    dimension: "correctness",
+    dimension: "line-scan",
     file: "src/app.ts",
     line: 42,
     category: "null-safety",
@@ -29,25 +29,26 @@ describe("gateFinding", () => {
     expect(result.reason).toContain("ile");
   });
 
-  it("rejects findings with vague issue descriptions", () => {
+  it("downgrades findings with vague issue descriptions instead of dropping", () => {
     const result = gateFinding(
       makeFinding({
         issue: "Consider improving this code",
         fix: "Refactor it",
       })
     );
-    expect(result.passed).toBe(false);
-    expect(result.reason).toContain("Vague");
+    expect(result.passed).toBe(true);
+    expect(result.downgraded).toBe(true);
   });
 
-  it("rejects findings with vague fix suggestions", () => {
+  it("downgrades findings with vague fix suggestions instead of dropping", () => {
     const result = gateFinding(
       makeFinding({
         issue: "Error handling could be improved",
         fix: "Consider adding try/catch",
       })
     );
-    expect(result.passed).toBe(false);
+    expect(result.passed).toBe(true);
+    expect(result.downgraded).toBe(true);
   });
 
   it("downgrades CRITICAL severity without security/exploit evidence", () => {
@@ -60,7 +61,6 @@ describe("gateFinding", () => {
     );
     expect(result.passed).toBe(true);
     expect(result.downgraded).toBe(true);
-    expect(result.reason).toContain("inflated");
   });
 
   it("keeps genuine CRITICAL findings", () => {

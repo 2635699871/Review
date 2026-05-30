@@ -68,7 +68,7 @@ describe("full pipeline with sample PR", () => {
     const findings: Finding[] = [
       {
         severity: "CRITICAL",
-        dimension: "security",
+        dimension: "line-scan",
         file: "src/auth/jwt-middleware.ts",
         line: 5,
         category: "hardcoded-secret",
@@ -78,7 +78,7 @@ describe("full pipeline with sample PR", () => {
       },
       {
         severity: "MEDIUM",
-        dimension: "correctness",
+        dimension: "line-scan",
         file: "src/utils/format.ts",
         line: 12,
         category: "null-safety",
@@ -101,7 +101,7 @@ describe("full pipeline with sample PR", () => {
     const findings: Finding[] = [
       {
         severity: "MEDIUM",
-        dimension: "maintainability",
+        dimension: "simplification",
         file: "src/utils/format.ts",
         line: 12,
         category: "magic-number",
@@ -117,11 +117,11 @@ describe("full pipeline with sample PR", () => {
     expect(verdict).toBe("COMMENT");
   });
 
-  it("gates out vague findings in the pipeline", () => {
+  it("downgrades vague findings instead of dropping them", () => {
     const findings: Finding[] = [
       {
         severity: "MEDIUM",
-        dimension: "maintainability",
+        dimension: "simplification",
         file: "src/auth/login.ts",
         line: 10,
         category: "naming",
@@ -131,7 +131,7 @@ describe("full pipeline with sample PR", () => {
       },
       {
         severity: "HIGH",
-        dimension: "correctness",
+        dimension: "line-scan",
         file: "src/auth/jwt-middleware.ts",
         line: 8,
         category: "null-safety",
@@ -141,11 +141,12 @@ describe("full pipeline with sample PR", () => {
       },
     ];
 
-    const { kept, dropped } = gateFindings(findings);
+    const { kept, downgraded } = gateFindings(findings);
 
-    // The vague finding should be dropped
-    expect(dropped).toBeGreaterThanOrEqual(1);
-    // The concrete finding should be kept
+    // The vague finding is now downgraded, not dropped
+    expect(downgraded).toBeGreaterThanOrEqual(1);
+    // Both findings should be kept (vague one downgraded, concrete one passes)
+    expect(kept).toHaveLength(2);
     expect(kept.some((f) => f.category === "null-safety")).toBe(true);
   });
 });

@@ -4,11 +4,14 @@ AI-powered Pull Request review tool that helps developers improve PR review effi
 
 ## Features
 
-- **Multi-Dimensional Review** — 4 parallel review dimensions:
-  - **Correctness** — Logic errors, null safety, edge cases, race conditions
-  - **Security** — Injection, XSS, hardcoded secrets, auth gaps, OWASP checks
-  - **Performance** — N+1 queries, sync blocking, missing pagination, memory patterns
-  - **Maintainability** — Dead code, magic numbers, deep nesting, naming issues
+- **Multi-Dimensional Review** — 7 parallel review dimensions:
+  - **Line Scan** — Per-line diff audit: null safety, edge cases, race conditions, missing await, inverted conditions
+  - **Removed Behavior** — Tracks deleted guards, error paths, and validations that aren't re-established
+  - **Cross-File** — Traces callers/callees of changed functions for broken contracts or new exceptions
+  - **Reuse** — Flags re-implementations where utility modules already exist
+  - **Simplification** — Catches copy-paste, dead code, derivable state, and unnecessary complexity
+  - **Efficiency** — Spots redundant computation, sync blocking, missing parallelism
+  - **Altitude** — Checks whether changes fix root causes or just add fragile special cases
 - **Chinese Brief Review** — Per-finding Chinese one-line assessment (zhBrief) generated at near-zero cost via LLM prompt injection; overall Chinese summary paragraph (zhSummary) via lightweight LLM call
 - **Smart Filtering** — Built-in exclusion of lockfiles, generated code, binaries, vendor directories; plus custom glob exclusion patterns (`--exclude "*.generated.*,src/vendor/**"`)
 - **Confidence Gate** — 4-question pre-report filter that drops vague/unverified findings
@@ -57,10 +60,12 @@ Arguments:
 Options:
   -d, --deep             Deep review with repo-level context
   -o, --output <mode>    Output: terminal, markdown, github, or all (default: all)
-  --dimensions <list>    Dimensions: correctness,security,performance,maintainability
+  --dimensions <list>    Dimensions: line-scan,removed-behavior,cross-file,reuse,simplification,efficiency,altitude
   --max-files <n>        Max files to review (default: 50)
   --provider <id>        LLM provider: anthropic, openai, deepseek, gemini, groq
   --model <name>         Override the default model for the selected provider
+  --review-model <name>  Model for the review/finding phase (defaults to --model)
+  --verify-model <name>  Model for the verify/summarize phase (defaults to --model)
   --exclude <patterns>   Additional glob patterns to exclude (comma-separated)
   -v, --verbose          Verbose logging
 ```
@@ -82,6 +87,9 @@ npx tsx src/index.ts owner/repo#42 --exclude "*.generated.*,src/vendor/**"
 
 # Large PR — limit scope
 npx tsx src/index.ts owner/repo#42 --max-files 20 --dimensions correctness
+
+# Dual-model: fast finder + strong verifier
+npx tsx src/index.ts owner/repo#42 --provider deepseek --review-model deepseek-chat --verify-model deepseek-reasoner
 ```
 
 ## Output
@@ -119,27 +127,27 @@ Full reports saved to `.pr-review/pr-{number}-review.md` with findings table, di
 ### Review Pipeline
 
 ```
-User Input → [Phase 1: Fetch] → [Phase 2: Filter] → [Phase 3: Review] → [Phase 4: Aggregate] → [Phase 4.5: Chinese Summary] → [Phase 5: Report]
+User Input → [Phase 1: Fetch] → [Phase 2: Filter] → [Phase 3: Review] → [Phase 3.5: Verify] → [Phase 4: Aggregate] → [Phase 4.5: Chinese Summary] → [Phase 5: Report]
 ```
 
 1. **Fetch** — Parallel GitHub API calls for PR metadata, files, commits, CI status
 2. **Filter** — Excludes lockfiles, generated code, binaries, vendor directories; applies custom glob exclusion patterns
-3. **Review** — Each dimension runs as an independent LLM call with specialized system prompts; warmup-then-parallel strategy for prompt caching (90% cost savings)
-4. **Aggregate** — Dedup, confidence gate (4-question filter), severity ranking
-5. **Chinese Summary** — Lightweight LLM call (max_tokens: 512, no thinking) generates 4-6 sentence Chinese summary from ranked findings
-6. **Report** — Terminal output + Markdown artifact + optional GitHub PR review
+3. **Review** — Each dimension runs as an independent LLM call with specialized system prompts; warmup-then-parallel strategy for prompt caching (90% cost savings). Uses the review model (fast/cheap, high recall).
+4. **Verify** — LLM verification judges each candidate finding as CONFIRMED, PLAUSIBLE, or REFUTED. Uses the verify model (strong reasoning, high precision). REFUTED findings are dropped.
+5. **Aggregate** — Dedup, confidence gate (4-question filter), severity ranking
+6. **Chinese Summary** — Lightweight LLM call (max_tokens: 512, no thinking) generates 4-6 sentence Chinese summary from ranked findings
+7. **Report** — Terminal output + Markdown artifact + optional GitHub PR review
 
 ### Design Decisions
 
 | Area | Decision | Rationale |
 |------|----------|-----------|
-| **Model** | Claude Sonnet 4 + thinking mode | 200K context window, prompt caching (90% cost savings across dimensions), thinking mode reduces false positives |
+| **Model** | Dual-model pipeline (finder + verifier) | Fast/cheap model for high-recall review (e.g., deepseek-chat); strong reasoning model for verification (e.g., deepseek-reasoner). Small models follow instructions literally (higher recall), large models self-censor (higher precision). Splitting them captures the best of both. |
 | **Review mode** | COMMENT only | AI must never auto-approve PRs; human always has final say |
 | **Context** | Progressive 3-level | Diff hunks by default → full files for high-risk → repo conventions with `--deep` |
-| **Dimensions** | 4 parallel | Correctness, Security, Performance, Maintainability — covers 80%+ of review value |
+| **Dimensions** | 7 parallel | Line Scan, Removed Behavior, Cross-File, Reuse, Simplification, Efficiency, Altitude — covers correctness bugs plus code quality |
 | **Confidence** | 4-question gate | Proven pattern from ECC code-reviewer; directly addresses signal-to-noise |
 | **Chinese review** | Hybrid (prompt injection + lightweight call) | zhBrief via LLM prompt at near-zero cost; zhSummary via small separate call |
-| **Cost** | ~$1-3 per review | Sonnet cheaper than Opus; prompt caching amortizes diff across dimensions |
 
 ## Project Structure
 
@@ -156,6 +164,7 @@ src/
   pipeline/
     fetcher.ts          # GitHub PR data fetching
     context-builder.ts  # Progressive context assembly
+    verifier.ts         # LLM verification judge (CONFIRMED/PLAUSIBLE/REFUTED)
     aggregator.ts       # Dedup + rank + confidence filter
   models/
     claude-client.ts    # Anthropic SDK wrapper + prompt caching

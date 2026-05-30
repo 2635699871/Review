@@ -32,7 +32,7 @@ export function createApp() {
   app.post("/api/review", async (req: Request, res: Response) => {
     const {
       pr, deep, output, dimensions, maxFiles, exclude,
-      provider, apiKey, apiBaseUrl, modelOverride, githubToken,
+      provider, apiKey, apiBaseUrl, modelOverride, reviewModel, verifyModel, githubToken,
     } = req.body as Record<string, unknown>;
 
     if (!pr || typeof pr !== "string") {
@@ -73,6 +73,8 @@ export function createApp() {
         apiKey: typeof apiKey === "string" ? apiKey : undefined,
         apiBaseUrl: typeof apiBaseUrl === "string" ? apiBaseUrl : undefined,
         modelOverride: typeof modelOverride === "string" ? modelOverride : undefined,
+        reviewModel: typeof reviewModel === "string" ? reviewModel : undefined,
+        verifyModel: typeof verifyModel === "string" ? verifyModel : undefined,
         githubToken: typeof githubToken === "string" ? githubToken : undefined,
       };
     } catch (err) {

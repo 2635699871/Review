@@ -20,8 +20,8 @@ program
   )
   .option(
     "--dimensions <list>",
-    "Review dimensions to run (comma-separated): correctness,security,performance,maintainability",
-    "correctness,security,performance,maintainability"
+    "Review dimensions to run (comma-separated): line-scan,removed-behavior,cross-file,reuse,simplification,efficiency,altitude",
+    "line-scan,removed-behavior,cross-file,reuse,simplification,efficiency,altitude"
   )
   .option(
     "--max-files <n>",
@@ -31,6 +31,8 @@ program
   .option("--provider <id>", "LLM provider (anthropic, openai, deepseek, gemini, groq, ...)")
   .option("--api-key <key>", "API key for the selected provider")
   .option("--model <name>", "Override the default model for the selected provider")
+  .option("--review-model <name>", "Model for the review/finding phase (defaults to --model)")
+  .option("--verify-model <name>", "Model for the verify/summarize phase (defaults to --model)")
   .option("--api-base-url <url>", "Override the default API base URL")
   .option(
     "--exclude <patterns>",
@@ -49,6 +51,8 @@ program
         provider: options.provider as string | undefined,
         apiKey: options.apiKey as string | undefined,
         modelOverride: options.model as string | undefined,
+        reviewModel: options.reviewModel as string | undefined,
+        verifyModel: options.verifyModel as string | undefined,
         apiBaseUrl: options.apiBaseUrl as string | undefined,
         exclude: options.exclude as string | undefined,
       });

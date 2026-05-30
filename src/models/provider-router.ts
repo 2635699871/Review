@@ -16,6 +16,13 @@ export interface LLMClient {
     findingsText: string,
     metadataText: string
   ): Promise<string>;
+
+  /** Verify a single finding against the diff — returns CONFIRMED / PLAUSIBLE / REFUTED */
+  verify(
+    systemPrompt: string,
+    findingInfo: string,
+    diffContext: string
+  ): Promise<string>;
 }
 
 interface ProviderConfig {
@@ -113,6 +120,29 @@ function createAnthropicClientSync(config: ProviderConfig): LLMClient {
       const textBlock = response.content.find((b: any) => b.type === "text");
       return (textBlock && "text" in textBlock) ? (textBlock as any).text : "";
     },
+
+    async verify(systemPrompt, findingInfo, diffContext) {
+      if (!client) {
+        const Anthropic = (await import("@anthropic-ai/sdk")).default;
+        client = new Anthropic({
+          apiKey: config.apiKey,
+          baseURL: config.baseUrl,
+        });
+      }
+
+      const response = await client.messages.create({
+        model: config.model,
+        max_tokens: 256,
+        temperature: 0,
+        system: [{ type: "text", text: systemPrompt }],
+        messages: [
+          { role: "user", content: [{ type: "text", text: diffContext + "\n\n" + findingInfo }] },
+        ],
+      });
+
+      const textBlock = response.content.find((b: any) => b.type === "text");
+      return ((textBlock && "text" in textBlock) ? (textBlock as any).text : "").trim();
+    },
   };
 }
 
@@ -209,6 +239,33 @@ function createOpenAICompatibleClientSync(config: ProviderConfig): LLMClient {
       const data: any = await response.json();
       return data.choices?.[0]?.message?.content ?? "";
     },
+
+    async verify(systemPrompt, findingInfo, diffContext) {
+      const response = await fetch(baseUrl + "/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.model,
+          max_tokens: 256,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: diffContext + "\n\n" + findingInfo },
+          ],
+          temperature: 0,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Verify API error (${response.status}): ${errText.slice(0, 200)}`);
+      }
+
+      const data: any = await response.json();
+      return (data.choices?.[0]?.message?.content ?? "").trim();
+    },
   };
 }
 
@@ -276,8 +333,9 @@ function parseFindings(text: string, dimension: Dimension): Finding[] {
       category: f.category,
       issue: f.issue,
       fix: f.fix,
-      confidence: 0.85,
+      confidence: 0.75,
       zhBrief: f.zh_brief,
+      codeQuote: f.code_quote,
     }));
   } catch {
     return fallbackParse(text, dimension);

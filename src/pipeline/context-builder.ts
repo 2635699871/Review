@@ -178,6 +178,112 @@ export function buildEnrichedDiffText(
 }
 
 /**
+ * Build cross-file caller context for the cross-file dimension.
+ * Extracts changed function/class names from diffs and finds call sites in other files.
+ * Returns null if no changed functions have external callers.
+ */
+export function buildCrossFileContext(
+  files: PRFile[],
+  fullFiles: Map<string, string>
+): string | null {
+  // 1. Extract changed function/class names from diff patches
+  const changedSymbols: Array<{ name: string; file: string; kind: string }> = [];
+  const seen = new Set<string>();
+
+  for (const file of files) {
+    if (!file.patch) continue;
+    // Collect contiguous + lines to match multi-line signatures
+    const lines = file.patch.split("\n");
+    let block: string[] = [];
+    for (const line of lines) {
+      if (line.startsWith("+") && !line.startsWith("+++")) {
+        block.push(line.slice(1)); // strip the + prefix
+      } else if (line.startsWith(" ") || line.startsWith("-")) {
+        // Flush the + block
+        if (block.length > 0) {
+          extractSymbols(block.join("\n"), file.filename, changedSymbols, seen);
+          block = [];
+        }
+      }
+      // @@ and other lines: ignore, continue accumulating
+    }
+    if (block.length > 0) {
+      extractSymbols(block.join("\n"), file.filename, changedSymbols, seen);
+    }
+  }
+
+  if (changedSymbols.length === 0) return null;
+
+  // 2. Find call sites in OTHER files
+  const callerSnippets: string[] = [];
+
+  for (const sym of changedSymbols) {
+    const wordBoundary = new RegExp("\\b" + escapeRegex(sym.name) + "\\b");
+
+    for (const file of files) {
+      if (file.filename === sym.file) continue; // skip same file
+
+      // Use full file content if available, otherwise fall back to patch
+      const content = fullFiles.get(file.filename) ?? file.patch ?? "";
+      const contentLines = content.split("\n");
+
+      for (let i = 0; i < contentLines.length; i++) {
+        const line = contentLines[i]!;
+        if (wordBoundary.test(line)) {
+          // Extract 2 lines before and 2 lines after
+          const start = Math.max(0, i - 2);
+          const end = Math.min(contentLines.length, i + 3);
+          const snippet = contentLines
+            .slice(start, end)
+            .map((l, idx) => `${String(start + idx + 1).padStart(4, " ")}: ${l}`)
+            .join("\n");
+
+          callerSnippets.push(
+            `### \`${sym.name}()\` called at ${file.filename}:${i + 1}\n\`\`\`\n${snippet}\n\`\`\`\n`
+          );
+          break; // one call site per file per symbol is enough
+        }
+      }
+    }
+  }
+
+  if (callerSnippets.length === 0) return null;
+
+  return `The following functions/classes were changed in this PR and have callers elsewhere:\n\n${callerSnippets.join("\n")}`;
+}
+
+/** Extract function/class/method names from a code block */
+function extractSymbols(
+  code: string,
+  filename: string,
+  out: Array<{ name: string; file: string; kind: string }>,
+  seen: Set<string>
+): void {
+  const patterns: Array<{ regex: RegExp; kind: string }> = [
+    { regex: /\bfunction\s+(\w+)/g, kind: "function" },
+    { regex: /\bclass\s+(\w+)/g, kind: "class" },
+    { regex: /\bconst\s+(\w+)\s*=\s*(?:async\s*)?\(/g, kind: "arrow" },
+    { regex: /\b(?:public|private|protected|static)\s+(?:async\s+)?(\w+)\s*\(/g, kind: "method" },
+    { regex: /\bexport\s+(?:const|function|class)\s+(\w+)/g, kind: "export" },
+  ];
+
+  for (const { regex, kind } of patterns) {
+    for (const m of code.matchAll(regex)) {
+      const name = m[1]!;
+      const key = `${filename}:${name}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push({ name, file: filename, kind });
+      }
+    }
+  }
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Build a human-readable metadata summary for the prompt.
  */
 export function buildMetadataText(params: {

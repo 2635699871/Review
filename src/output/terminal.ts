@@ -23,10 +23,13 @@ const VERDICT_LABELS: Record<string, string> = {
 };
 
 const DIMENSION_LABELS: Record<string, string> = {
-  correctness: "Correctness",
-  security: "Security",
-  performance: "Performance",
-  maintainability: "Maintainability",
+  "line-scan": "Line Scan",
+  "removed-behavior": "Removed Behavior",
+  "cross-file": "Cross-File",
+  reuse: "Reuse",
+  simplification: "Simplification",
+  efficiency: "Efficiency",
+  altitude: "Altitude",
 };
 
 /** Render the full terminal review output */

@@ -44,7 +44,7 @@ export function calculateBudget(fileCount: number, config: ReviewConfig): Budget
 
   if (fileCount <= 50) {
     return {
-      dimensions: Math.min(config.dimensions.length, 3),
+      dimensions: Math.min(config.dimensions.length, 4),
       depth: "diff-only",
       thinkingTokens: 2000,
       maxDiffSize: 40_000,
@@ -53,7 +53,7 @@ export function calculateBudget(fileCount: number, config: ReviewConfig): Budget
 
   // PR > 50 files: reduce dimensions, diff-only
   return {
-    dimensions: Math.min(config.dimensions.length, 2),
+    dimensions: Math.min(config.dimensions.length, 3),
     depth: "diff-only",
     thinkingTokens: 1600,
     maxDiffSize: 30_000,

@@ -144,11 +144,14 @@
         <div class="form-group">
           <label for="dims-select">审查维度</label>
           <select id="dims-select">
-            <option value="">全部（4 项）</option>
-            <option value="correctness">仅正确性</option>
-            <option value="security">仅安全性</option>
-            <option value="correctness,security">正确性 + 安全性</option>
-            <option value="performance,maintainability">性能 + 可维护性</option>
+            <option value="">全部（7 项）</option>
+            <option value="line-scan">行级扫描</option>
+            <option value="removed-behavior">删除影响</option>
+            <option value="cross-file">跨文件</option>
+            <option value="reuse">复用</option>
+            <option value="simplification">简化</option>
+            <option value="efficiency">效率</option>
+            <option value="altitude">架构</option>
           </select>
         </div>
         <div class="form-group">
@@ -198,7 +201,7 @@
     </div>
 
     <div class="form-group">
-      <label id="apikey-label">API 密钥</label>
+      <label id="apikey-label">API 密钥（当前提供商）</label>
       <input id="apikey-input" type="password" placeholder="输入 API 密钥...">
       <div class="form-hint" id="apikey-hint"></div>
     </div>
@@ -210,9 +213,21 @@
     </div>
 
     <div class="form-group">
-      <label>模型名称（可选）</label>
+      <label>默认模型（可选）</label>
       <input id="model-input" type="text" placeholder="自动使用提供商默认模型">
       <div class="form-hint" id="model-hint">留空使用默认模型</div>
+    </div>
+
+    <div class="form-group">
+      <label>审查模型（可选）</label>
+      <input id="review-model-input" type="text" placeholder="留空使用默认模型">
+      <div class="form-hint">用于发现 bug 的模型，建议用快速便宜的模型（如 deepseek-chat）提高召回率</div>
+    </div>
+
+    <div class="form-group">
+      <label>验证模型（可选）</label>
+      <input id="verify-model-input" type="text" placeholder="留空使用默认模型">
+      <div class="form-hint">用于判定 finding 真假的模型，建议用强推理模型（如 deepseek-reasoner）提高准确率</div>
     </div>
 
     <hr style="border-color:var(--border);margin:16px 0">
@@ -239,7 +254,7 @@ const SEV_LABEL = { CRITICAL: '严重', HIGH: '重要', MEDIUM: '中等', LOW: '
 const SEV_ICON = { CRITICAL: '⛔', HIGH: '⚠', MEDIUM: 'ℹ', LOW: '○' };
 const SEV_CSS = { CRITICAL: '严重', HIGH: '重要', MEDIUM: '中等', LOW: '建议' };
 const VERDICT_LABEL = { BLOCK: '阻断', REQUEST_CHANGES: '需修改', COMMENT: '通过' };
-const DIM_LABEL = { correctness: '正确性', security: '安全性', performance: '性能', maintainability: '可维护性' };
+const DIM_LABEL = { 'line-scan': '行级扫描', 'removed-behavior': '删除影响', 'cross-file': '跨文件', reuse: '复用', simplification: '简化', efficiency: '效率', altitude: '架构' };
 const PHASE_LABEL = { fetch: '获取中', filter: '筛选中', review: '审查中', aggregate: '汇总中', report: '生成报告' };
 
 // ─── 侧边栏拖拽 ─────────────────────────────────────────────
@@ -271,7 +286,7 @@ let settings = loadSettings();
 let allProviders = [];
 
 function defaultSettings() {
-  return { provider: 'anthropic', keys: {}, baseUrls: {}, models: {}, githubToken: '' };
+  return { provider: 'anthropic', keys: {}, baseUrls: {}, models: {}, githubToken: '', reviewModel: '', verifyModel: '' };
 }
 
 function loadSettings() {
@@ -307,6 +322,8 @@ function openSettings() {
   }
   sel.value = settings.provider || 'anthropic';
   onProviderChange();
+  document.getElementById('review-model-input').value = settings.reviewModel || '';
+  document.getElementById('verify-model-input').value = settings.verifyModel || '';
   document.getElementById('ghtoken-input').value = settings.githubToken || '';
   $('#settings-modal').classList.add('open');
 }
@@ -351,6 +368,8 @@ function saveSettings() {
   if (modelVal) settings.models[pid] = modelVal;
   else delete settings.models[pid];
 
+  settings.reviewModel = document.getElementById('review-model-input').value.trim();
+  settings.verifyModel = document.getElementById('verify-model-input').value.trim();
   settings.githubToken = document.getElementById('ghtoken-input').value.trim();
 
   saveSettingsToStore();
@@ -449,6 +468,8 @@ async function startReview() {
     apiKey: getActiveApiKey() || undefined,
     apiBaseUrl: getActiveBaseUrl() || undefined,
     modelOverride: getActiveModel() || undefined,
+    reviewModel: settings.reviewModel || undefined,
+    verifyModel: settings.verifyModel || undefined,
     githubToken: settings.githubToken || undefined,
   };
 

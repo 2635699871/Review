@@ -26,33 +26,33 @@ export function gateFinding(finding: Finding): GateResult {
     isSeverityDefensible(finding),
   ];
 
-  const failures = checks.filter((c) => !c.passed);
+  // Separate hard failures (drop) from soft failures (downgrade only)
+  const hardFailures = checks.filter((c) => !c.passed);
+  const downgradeFlags = checks.filter((c) => c.downgrade === true);
 
-  if (failures.length === 0) {
-    return { passed: true, downgraded: false };
-  }
-
-  // If severity was the only issue, downgrade instead of drop
-  const onlySeverityIssue =
-    failures.length === 1 && failures[0]!.reason === "severity";
-
-  if (onlySeverityIssue) {
+  // Real problems → drop
+  if (hardFailures.length > 0) {
     return {
-      passed: true,
-      downgraded: true,
-      reason: "Severity flagged as overinflated",
+      passed: false,
+      downgraded: false,
+      reason: hardFailures.map((f) => f.reason!).join("; "),
     };
   }
 
-  return {
-    passed: false,
-    downgraded: false,
-    reason: failures.map((f) => f.reason).join("; "),
-  };
+  // Severity/vagueness concerns → downgrade instead of drop
+  if (downgradeFlags.length > 0) {
+    return {
+      passed: true,
+      downgraded: true,
+      reason: downgradeFlags.map((f) => f.reason!).filter(Boolean).join("; ") || "Severity flagged as overinflated",
+    };
+  }
+
+  return { passed: true, downgraded: false };
 }
 
 /** Gate 1: Can we cite the exact line? */
-function canCiteExactLine(finding: Finding): { passed: boolean; reason?: string } {
+function canCiteExactLine(finding: Finding): { passed: boolean; downgrade?: boolean; reason?: string } {
   if (!finding.file) {
     return { passed: false, reason: "File path is missing" };
   }
@@ -60,8 +60,8 @@ function canCiteExactLine(finding: Finding): { passed: boolean; reason?: string 
 }
 
 /** Gate 2: Can we describe a concrete failure mode? */
-function canDescribeFailure(finding: Finding): { passed: boolean; reason?: string } {
-  // Check for vague descriptions
+function canDescribeFailure(finding: Finding): { passed: boolean; downgrade?: boolean; reason?: string } {
+  // Check for vague descriptions — downgrade rather than drop
   const vaguePatterns = [
     /^consider/i,
     /^maybe/i,
@@ -77,18 +77,20 @@ function canDescribeFailure(finding: Finding): { passed: boolean; reason?: strin
   for (const pattern of vaguePatterns) {
     if (pattern.test(finding.issue) && !finding.fix) {
       return {
-        passed: false,
+        passed: true,
+        downgrade: true,
         reason: `Vague issue description: "${finding.issue.slice(0, 60)}"`,
       };
     }
   }
 
-  // The fix should be concrete
+  // The fix should be concrete — downgrade rather than drop
   const vagueFixes = [/^refactor/i, /^improve/i, /^fix it/i, /^consider/i, /^review/i];
   for (const pattern of vagueFixes) {
     if (pattern.test(finding.fix)) {
       return {
-        passed: false,
+        passed: true,
+        downgrade: true,
         reason: `Vague fix suggestion: "${finding.fix.slice(0, 60)}"`,
       };
     }
@@ -98,7 +100,7 @@ function canDescribeFailure(finding: Finding): { passed: boolean; reason?: strin
 }
 
 /** Gate 3: Does the context suggest we understand the code? */
-function hasSurroundingContext(finding: Finding): { passed: boolean; reason?: string } {
+function hasSurroundingContext(finding: Finding): { passed: boolean; downgrade?: boolean; reason?: string } {
   // Findings that mention "caller" or "import" without evidence
   if (
     /\bcaller\b/.test(finding.issue) &&
@@ -114,8 +116,8 @@ function hasSurroundingContext(finding: Finding): { passed: boolean; reason?: st
   return { passed: true };
 }
 
-/** Gate 4: Is the severity defensible? */
-function isSeverityDefensible(finding: Finding): { passed: boolean; reason?: string } {
+/** Gate 4: Is the severity defensible? If not, downgrade instead of drop. */
+function isSeverityDefensible(finding: Finding): { passed: boolean; downgrade?: boolean; reason?: string } {
   // CRITICAL must involve security vulnerability or data loss risk
   const criticalTerms = [
     /security/i,
@@ -141,7 +143,8 @@ function isSeverityDefensible(finding: Finding): { passed: boolean; reason?: str
     );
     if (!hasEvidence) {
       return {
-        passed: false,
+        passed: true,
+        downgrade: true,
         reason: "severity",
       };
     }
@@ -158,7 +161,7 @@ function isSeverityDefensible(finding: Finding): { passed: boolean; reason?: str
     ];
     const isSmell = smellPatterns.some((p) => p.test(finding.issue));
     if (isSmell && finding.confidence <= 0.85) {
-      return { passed: false, reason: "severity" };
+      return { passed: true, downgrade: true, reason: "severity" };
     }
   }
 
