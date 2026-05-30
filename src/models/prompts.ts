@@ -143,3 +143,18 @@ ${repoConventions}
 
 Apply these project conventions in your review. If a finding conflicts with a stated convention, note the conflict.`;
 }
+
+/** Build system prompt for Chinese summary generation */
+export function buildSummarySystemPrompt(verdict: string, numFindings: number): string {
+  return `You are a technical report writer. Write a concise Chinese summary paragraph for a code review.
+
+The review found ${numFindings} issue(s). The overall verdict is: ${verdict}.
+
+Rules:
+- Write in Chinese (simplified)
+- Keep it to 4-6 sentences
+- Mention the most important issues first (CRITICAL > HIGH > MEDIUM > LOW)
+- Mention which files or areas are most affected
+- Do not repeat the input verbatim — synthesize and prioritize
+- Be direct and actionable. Do not use polite filler words.`;
+}
