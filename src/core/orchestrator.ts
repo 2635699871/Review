@@ -8,7 +8,7 @@ import {
   buildEnrichedDiffText,
   buildMetadataText,
 } from "../pipeline/context-builder.js";
-import { buildReviewerSystemPrompt, getDimensionLabel } from "../models/prompts.js";
+import { buildReviewerSystemPrompt, buildSummarySystemPrompt, getDimensionLabel } from "../models/prompts.js";
 import { getProvider, getDefaultModel, getDefaultBaseUrl } from "../models/provider-registry.js";
 import { aggregate, determineVerdict } from "../pipeline/aggregator.js";
 import { renderTerminal } from "../output/terminal.js";
@@ -50,8 +50,7 @@ export async function runReview(config: ReviewConfig): Promise<ReviewResult | nu
   // ─── Phase 2: Filter & Categorize ─────────────────────
   notify({ phase: "filter", message: "Filtering and categorizing files..." });
 
-  const fileCategory = filterFiles(prData.files, {
-    maxFiles: config.maxFiles,});
+  const fileCategory = filterFiles(prData.files, { maxFiles: config.maxFiles });
 
   notify({
     phase: "filter",
@@ -127,14 +126,33 @@ export async function runReview(config: ReviewConfig): Promise<ReviewResult | nu
     percent: 80,
   });
 
-  const verdict = determineVerdict(ranked);// ─── Phase 5: Report ──────────────────────────────────
+  const verdict = determineVerdict(ranked);
+
+  // ─── Phase 4.5: Chinese Summary ─────────────────────────
+  notify({ phase: "aggregate", message: "Generating Chinese summary...", percent: 85 });
+
+  let zhSummary: string | undefined;
+  try {
+    const summaryPrompt = buildSummarySystemPrompt(verdict, ranked.length);
+    const findingsSummary = buildFindingsSummary(ranked);
+    zhSummary = await llmClient.summarize(summaryPrompt, findingsSummary, metadataText);
+  } catch (error) {
+    notify({
+      phase: "aggregate",
+      message: `Chinese summary skipped: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
+
+  // ─── Phase 5: Report ──────────────────────────────────
   notify({ phase: "report", message: "Generating report...", percent: 90 });
 
   const dimSummary = activeDimensions.map((d) => getDimensionLabel(d) || d).join(", ");
   const reviewResult: ReviewResult = {
     pr: prData,
     findings: ranked,
-    summary: `This PR changes ${prData.changedFiles} files (+${prData.additions}/-${prData.deletions}), reviewed across ${activeDimensions.length} dimensions: ${dimSummary}.`,verdict,
+    summary: `This PR changes ${prData.changedFiles} files (+${prData.additions}/-${prData.deletions}), reviewed across ${activeDimensions.length} dimensions: ${dimSummary}.`,
+    zhSummary,
+    verdict,
     actionableRate,
     reviewedAt: new Date().toISOString(),
     dimensionsRun: activeDimensions,
@@ -224,7 +242,7 @@ function createClient(config: ReviewConfig, budget: { thinkingTokens: number }):
     apiKey,
     baseUrl,
     model,
-    maxTokens: Math.max(4096, budget.thinkingTokens + 1024),
+    maxTokens: Math.max(4096, budget.thinkingTokens + 1536),
     thinkingBudget: budget.thinkingTokens,
   });
 }
@@ -456,6 +474,24 @@ async function fetchPRData(
     })),
     ciStatus,
   };
+}
+
+/** Serialize findings into compact text for the Chinese summary LLM call */
+function buildFindingsSummary(findings: Finding[]): string {
+  if (findings.length === 0) return "No findings.";
+
+  const lines: string[] = [];
+  const severities = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+  for (const sev of severities) {
+    const group = findings.filter((f) => f.severity === sev);
+    if (group.length === 0) continue;
+    lines.push(`## ${sev} (${group.length})`);
+    for (const f of group) {
+      lines.push(`- [${f.dimension}] ${f.file}:${f.line ?? "-"} — ${f.issue}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
 }
 
 function ciSummary(checks: Array<{ conclusion: string | null }>): string {

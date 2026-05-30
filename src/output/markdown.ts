@@ -21,7 +21,16 @@ export function generateReport(result: ReviewResult): string {
   lines.push("## Summary");
   lines.push("");
   lines.push(result.summary || "No summary generated.");
-  lines.push("");// File table
+  lines.push("");
+
+  if (result.zhSummary) {
+    lines.push("### 中文摘要");
+    lines.push("");
+    lines.push(result.zhSummary);
+    lines.push("");
+  }
+
+  // File table
   lines.push("## Changes Analyzed");
   lines.push("");
   lines.push("| File | Changes | Status |");
@@ -59,7 +68,12 @@ export function generateReport(result: ReviewResult): string {
       lines.push(`- **Category**: ${f.category}`);
       if (f.fix && f.fix !== "See issue description") {
         lines.push(`- **Fix**: ${f.fix}`);
-      }lines.push("");
+      }
+      if (f.zhBrief) {
+        lines.push("");
+        lines.push(`> ${f.zhBrief}`);
+      }
+      lines.push("");
     }
   }
 
@@ -107,6 +121,10 @@ export function generateGitHubBody(result: ReviewResult): string {
   parts.push(result.summary || "Automated review completed.");
   parts.push("");
 
+  if (result.zhSummary) {
+    parts.push("");
+    parts.push("**中文摘要**: " + result.zhSummary);
+  }
 
   if (result.findings.length === 0) {
     parts.push(":white_check_mark: No issues found.");
@@ -135,10 +153,12 @@ export function generateInlineComments(
 
   for (const f of findings) {
     if (f.line && f.file) {
-      const sev = f.severity === "CRITICAL" ? "🔴" : f.severity === "HIGH" ? "🟡" : "🔵";comments.push({
+      const sev = f.severity === "CRITICAL" ? "🔴" : f.severity === "HIGH" ? "🟡" : "🔵";
+      const zhLine = f.zhBrief ? `\n\n简评: ${f.zhBrief}` : "";
+      comments.push({
         path: f.file,
         line: f.line,
-        body: `${sev} **${f.severity}** (${f.dimension}): ${f.issue}\n\nSuggested fix: ${f.fix}`,
+        body: `${sev} **${f.severity}** (${f.dimension}): ${f.issue}${zhLine}\n\nSuggested fix: ${f.fix}`,
       });
     }
   }
