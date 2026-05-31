@@ -61,7 +61,7 @@ export function generateReport(result: ReviewResult): string {
     lines.push("");
 
     for (const f of group) {
-      lines.push(`### [${severity}] ${f.issue}`);
+      lines.push(`### [${severity}] ${f.verdict === "CONFIRMED" ? "✅已确认" : "⚠️存疑"} — ${f.issue}`);
       lines.push("");
       lines.push(`- **File**: \`${f.file}${f.line ? ":" + f.line : ""}\``);
       lines.push(`- **Dimension**: ${f.dimension}`);

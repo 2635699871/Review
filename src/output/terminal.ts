@@ -224,6 +224,10 @@ function renderSeverityGroups(findings: Finding[], lines: string[]): void {
       const dimCount = dims.length;
       const consensusTag = dimCount > 1 ? chalk.magenta(`  ×${dimCount}`) : "";
 
+      const verdictTag =
+        finding.verdict === "CONFIRMED"
+          ? chalk.green("  [已确认]")
+          : chalk.yellow("  [存疑]");
       lines.push("");
       lines.push(
         color(`  [${finding.severity}]`) +
@@ -231,6 +235,7 @@ function renderSeverityGroups(findings: Finding[], lines: string[]): void {
           " " +
           chalk.white(finding.issue)
       );
+      lines.push(verdictTag);
       lines.push(
         chalk.gray(`  Dimension: ${dims.map((d) => DIMENSION_LABELS[d] ?? d).join(", ")}`)
       );
