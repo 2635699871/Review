@@ -4,7 +4,7 @@ AI-powered Pull Request review tool that helps developers improve PR review effi
 
 ## Features
 
-- **Multi-Dimensional Review** — 7 parallel review dimensions:
+- **Multi-Dimensional Review** — 9 parallel review dimensions:
   - **Line Scan** — Per-line diff audit: null safety, edge cases, race conditions, missing await, inverted conditions
   - **Removed Behavior** — Tracks deleted guards, error paths, and validations that aren't re-established
   - **Cross-File** — Traces callers/callees of changed functions for broken contracts or new exceptions
@@ -12,6 +12,8 @@ AI-powered Pull Request review tool that helps developers improve PR review effi
   - **Simplification** — Catches copy-paste, dead code, derivable state, and unnecessary complexity
   - **Efficiency** — Spots redundant computation, sync blocking, missing parallelism
   - **Altitude** — Checks whether changes fix root causes or just add fragile special cases
+  - **Python Patterns** — GREP-style scanners for Python-specific: unused params, dict.get leak, missing makedirs, bare except, missing dedup
+  - **Security** — Hardcoded credentials, SQL/XSS injection, path traversal, unsafe deserialization, OWASP Top 10
 - **Chinese Brief Review** — Per-finding Chinese one-line assessment (zhBrief) generated at near-zero cost via LLM prompt injection; overall Chinese summary paragraph (zhSummary) via lightweight LLM call
 - **Smart Filtering** — Built-in exclusion of lockfiles, generated code, binaries, vendor directories; plus custom glob exclusion patterns (`--exclude "*.generated.*,src/vendor/**"`)
 - **Confidence Gate** — 4-question pre-report filter that drops vague/unverified findings
@@ -27,11 +29,9 @@ AI-powered Pull Request review tool that helps developers improve PR review effi
 cd pr-review-assistant
 npm install
 
-# Set your API key (any supported provider)
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# For private repos, set a GitHub token
-export GITHUB_TOKEN="ghp_..."
+# Copy and configure environment variables
+cp .env.example .env
+# Edit .env — set at least one API key
 
 # Run a review
 npx tsx src/index.ts owner/repo#123
@@ -60,7 +60,7 @@ Arguments:
 Options:
   -d, --deep             Deep review with repo-level context
   -o, --output <mode>    Output: terminal, markdown, github, or all (default: all)
-  --dimensions <list>    Dimensions: line-scan,removed-behavior,cross-file,reuse,simplification,efficiency,altitude
+  --dimensions <list>    Dimensions: line-scan,removed-behavior,cross-file,reuse,simplification,efficiency,altitude,python-patterns,security
   --max-files <n>        Max files to review (default: 50)
   --provider <id>        LLM provider: anthropic, openai, deepseek, gemini, groq
   --model <name>         Override the default model for the selected provider
@@ -145,7 +145,7 @@ User Input → [Phase 1: Fetch] → [Phase 2: Filter] → [Phase 3: Review] → 
 | **Model** | Dual-model pipeline (finder + verifier) | Fast/cheap model for high-recall review (e.g., deepseek-chat); strong reasoning model for verification (e.g., deepseek-reasoner). Small models follow instructions literally (higher recall), large models self-censor (higher precision). Splitting them captures the best of both. |
 | **Review mode** | COMMENT only | AI must never auto-approve PRs; human always has final say |
 | **Context** | Progressive 3-level | Diff hunks by default → full files for high-risk → repo conventions with `--deep` |
-| **Dimensions** | 7 parallel | Line Scan, Removed Behavior, Cross-File, Reuse, Simplification, Efficiency, Altitude — covers correctness bugs plus code quality |
+| **Dimensions** | 9 parallel | Line Scan, Removed Behavior, Cross-File, Reuse, Simplification, Efficiency, Altitude, Python Patterns, Security — covers correctness bugs plus code quality |
 | **Confidence** | 4-question gate | Proven pattern from ECC code-reviewer; directly addresses signal-to-noise |
 | **Chinese review** | Hybrid (prompt injection + lightweight call) | zhBrief via LLM prompt at near-zero cost; zhSummary via small separate call |
 
@@ -195,10 +195,21 @@ tests/
 | Anthropic | claude-sonnet-4-20250514 | `ANTHROPIC_API_KEY` |
 | OpenAI | gpt-4o | `OPENAI_API_KEY` |
 | DeepSeek | deepseek-chat | `DEEPSEEK_API_KEY` |
-| Gemini | gemini-2.5-pro | `GEMINI_API_KEY` |
-| Groq | llama-4-maverick-17b | `GROQ_API_KEY` |
+| Gemini | gemini-2.5-flash | `GEMINI_API_KEY` |
+| Groq | llama-3.3-70b-versatile | `GROQ_API_KEY` |
+| Mistral | mistral-large-latest | `MISTRAL_API_KEY` |
+| Together AI | Llama 3.3 70B Instruct | `TOGETHER_API_KEY` |
+| xAI Grok | grok-4.3 | `XAI_API_KEY` |
+| Moonshot (Kimi) | kimi-k2.6 | `MOONSHOT_API_KEY` |
+| Qwen (DashScope) | qwen-plus | `DASHSCOPE_API_KEY` |
+| ZhipuAI (GLM) | glm-4.7 | `ZHIPUAI_API_KEY` |
+| Baichuan | Baichuan4-Turbo | `BAICHUAN_API_KEY` |
+| MiniMax | MiniMax-M2.7 | `MINIMAX_API_KEY` |
+| Doubao (豆包) | doubao-seed-2-0-pro | `ARK_API_KEY` |
+| Cohere | command-a-plus-05-2026 | `CO_API_KEY` |
+| Perplexity | sonar-pro | `PERPLEXITY_API_KEY` |
 
-Custom OpenAI-compatible endpoints supported via `--provider` with `--api-base-url` and `--model`.
+See `.env.example` for a complete template. Custom OpenAI-compatible endpoints supported via `--provider custom` with `CUSTOM_API_KEY`, `CUSTOM_BASE_URL`, and `CUSTOM_MODEL`.
 
 ## Dependencies
 
