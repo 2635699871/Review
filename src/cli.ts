@@ -20,8 +20,8 @@ program
   )
   .option(
     "--dimensions <list>",
-    "Review dimensions to run (comma-separated): line-scan,removed-behavior,cross-file,reuse,simplification,efficiency,altitude",
-    "line-scan,removed-behavior,cross-file,reuse,simplification,efficiency,altitude"
+    "Review dimensions to run (comma-separated): line-scan,removed-behavior,cross-file,reuse,simplification,efficiency,altitude,security",
+    "line-scan,removed-behavior,cross-file,reuse,simplification,efficiency,altitude,security"
   )
   .option(
     "--max-files <n>",

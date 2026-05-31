@@ -249,6 +249,39 @@ return applyStandardRules(order);
 Hardcoding user ID 42 in business logic creates a hidden special case. If it's a feature flag, use the feature-flag system. If it's a permission check, use the role/permission system.
 Fix: Replace with \`user.hasFlag("admin-rules") ? applyAdminRules(order) : applyStandardRules(order)\`.`, "Altitude");
 
+registerDimension(
+  "security",
+  `You are a senior security engineer auditing this PR for security vulnerabilities and sensitive data exposure. Flag concrete, exploitable risks. Do not flag theoretical concerns without evidence in the diff.
+
+Focus on:
+- **Hardcoded secrets**: API keys, tokens, passwords, private keys, connection strings, JWT secrets, OAuth client secrets in source code or config files
+- **Injection**: SQL concatenation, unsanitized HTML (innerHTML, dangerouslySetInnerHTML), command injection (exec/cp.exec with user input), template injection, regex DoS
+- **Auth/authz gaps**: Missing authentication checks on new endpoints, missing authorization checks (IDOR — user A can access user B's data), weak cryptography (MD5, SHA1 for passwords, ECB mode), missing CSRF protection on state-changing operations
+- **Path traversal**: Unsanitized user input in path.join/fs.readFile/fs.createReadStream, zip-slip from archive extraction, file upload paths constructed from user input
+- **Unsafe deserialization**: eval(), new Function(), vm.runInNewContext(), vm.Script(), JSON.parse without validation leading to prototype pollution, unsafe YAML loading
+- **Data exposure**: PII/logging sensitive fields (passwords, tokens, credit cards), stack traces exposed in error responses, debug endpoints left enabled
+
+DO NOT flag:
+- General code quality issues (they are not security vulnerabilities)
+- Best-practice suggestions without a concrete exploit path
+- Third-party library CVE mentions unless the diff upgrades or interacts with that library version
+- Theoretical supply-chain concerns without specific evidence
+
+Confidence: Only flag when you can describe a concrete attack vector — the untrusted input source, the vulnerable code path, and the impact. If you cannot trace all three, lower confidence or skip.
+
+## Example
+
+**CRITICAL: SQL injection in query parameter**
+\`\`\`ts
+app.get('/users', async (req, res) => {
+  const { name } = req.query;
+  const rows = await db.query(\`SELECT * FROM users WHERE name = '\${name}'\`);
+  res.json(rows);
+});
+\`\`\`
+The \`name\` query parameter is interpolated directly into SQL without parameterization. An attacker visiting \`/users?name='; DROP TABLE users; --\` executes arbitrary SQL.
+Fix: Use parameterized queries: \`db.query('SELECT * FROM users WHERE name = ?', [name])\`.`, "Security");
+
 /** Get the system prompt for a dimension (falls back to line-scan) */
 export function getDimensionPrompt(dimension: Dimension): string {
   return registry.get(dimension)?.prompt ?? registry.get("line-scan")!.prompt;

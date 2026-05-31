@@ -30,6 +30,7 @@ const DIMENSION_LABELS: Record<string, string> = {
   simplification: "Simplification",
   efficiency: "Efficiency",
   altitude: "Altitude",
+  security: "Security",
 };
 
 /** Render the full terminal review output */

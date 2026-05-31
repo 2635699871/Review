@@ -93,6 +93,10 @@ export interface ReviewProgress {
   message: string;
   detail?: string;
   percent?: number;
+  /** Estimated seconds remaining (present when percent > 0) */
+  etaSeconds?: number;
+  /** Per-dimension status map */
+  dimensionStatus?: Record<string, "pending" | "running" | "done" | "failed">;
 }
 
 /** Configuration options */

@@ -50,6 +50,37 @@ const CONVENTION_FILES = [
   "docs/STYLE_GUIDE.md",
 ];
 
+/** Config files to auto-discover in deep mode (probed in parallel) */
+const DISCOVERABLE_CONFIG_FILES = [
+  "package.json",
+  "tsconfig.json",
+  "tsconfig.build.json",
+  "tsconfig.app.json",
+  ".eslintrc.js",
+  ".eslintrc.cjs",
+  ".eslintrc.yaml",
+  ".eslintrc.json",
+  "eslint.config.js",
+  "eslint.config.mjs",
+  ".prettierrc",
+  ".prettierrc.json",
+  ".prettierrc.yaml",
+  "prettier.config.js",
+  "jest.config.js",
+  "jest.config.ts",
+  "vitest.config.ts",
+  "vitest.config.js",
+  "vite.config.ts",
+  "vite.config.js",
+  "webpack.config.js",
+  "rollup.config.js",
+  "Dockerfile",
+  "docker-compose.yml",
+  "docker-compose.yaml",
+  "Makefile",
+  ".env.example",
+];
+
 /** Build full review context with progressive levels */
 export async function buildReviewContext(params: {
   pr: PRMetadata;
@@ -98,6 +129,25 @@ export async function buildReviewContext(params: {
         conventionTexts.push(`## ${file}\n\n${content}`);
       }
     }
+    // Phase B: Auto-discover project config files
+    const discoveredTexts: string[] = [];
+    const probeResults = await Promise.allSettled(
+      DISCOVERABLE_CONFIG_FILES.map(async (file) => {
+        let content = await fetchGitHubFile(pr.owner, pr.repo, file, ref, gitHubToken);
+        if (!content && fallbackRef) {
+          content = await fetchGitHubFile(pr.owner, pr.repo, file, fallbackRef, gitHubToken);
+        }
+        return { file, content };
+      })
+    );
+    for (const r of probeResults) {
+      if (r.status === "fulfilled" && r.value.content) {
+        discoveredTexts.push(`## ${r.value.file}\n\n${r.value.content.slice(0, 6000)}`);
+        if (discoveredTexts.length >= 12) break;
+      }
+    }
+    conventionTexts.push(...discoveredTexts);
+
     if (conventionTexts.length > 0) {
       repoConventions = conventionTexts.join("\n\n---\n\n");
     }

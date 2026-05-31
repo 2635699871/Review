@@ -144,7 +144,7 @@
         <div class="form-group">
           <label for="dims-select">审查维度</label>
           <select id="dims-select">
-            <option value="">全部（7 项）</option>
+            <option value="">全部（8 项）</option>
             <option value="line-scan">行级扫描</option>
             <option value="removed-behavior">删除影响</option>
             <option value="cross-file">跨文件</option>
@@ -152,6 +152,7 @@
             <option value="simplification">简化</option>
             <option value="efficiency">效率</option>
             <option value="altitude">架构</option>
+            <option value="security">安全</option>
           </select>
         </div>
         <div class="form-group">
@@ -174,6 +175,7 @@
 
     <!-- 进度 -->
     <div id="progress">
+      <div id="dim-status" style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;font-size:12px"></div>
       <div id="progress-log"></div>
       <div id="progress-bar"><div id="progress-bar-fill"></div></div>
     </div>
@@ -254,7 +256,8 @@ const SEV_LABEL = { CRITICAL: '严重', HIGH: '重要', MEDIUM: '中等', LOW: '
 const SEV_ICON = { CRITICAL: '⛔', HIGH: '⚠', MEDIUM: 'ℹ', LOW: '○' };
 const SEV_CSS = { CRITICAL: '严重', HIGH: '重要', MEDIUM: '中等', LOW: '建议' };
 const VERDICT_LABEL = { BLOCK: '阻断', REQUEST_CHANGES: '需修改', COMMENT: '通过' };
-const DIM_LABEL = { 'line-scan': '行级扫描', 'removed-behavior': '删除影响', 'cross-file': '跨文件', reuse: '复用', simplification: '简化', efficiency: '效率', altitude: '架构' };
+const DIM_LABEL = { 'line-scan': '行级扫描', 'removed-behavior': '删除影响', 'cross-file': '跨文件', reuse: '复用', simplification: '简化', efficiency: '效率', altitude: '架构', security: '安全' };
+let lastReviewConfig = null; // saved for re-review
 const PHASE_LABEL = { fetch: '获取中', filter: '筛选中', review: '审查中', aggregate: '汇总中', report: '生成报告' };
 
 // ─── 侧边栏拖拽 ─────────────────────────────────────────────
@@ -447,6 +450,14 @@ async function startReview() {
   const pr = $('#pr-input').value.trim();
   if (!pr) return;
 
+  lastReviewConfig = {
+    pr,
+    deep: $('#deep-toggle')?.checked ?? false,
+    dimensions: $('#dims-select').value,
+    maxFiles: $('#maxfiles-input').value,
+    exclude: $('#exclude-input').value,
+  };
+
   const btn = $('#review-btn');
   btn.disabled = true;
   btn.textContent = '审查中...';
@@ -456,6 +467,8 @@ async function startReview() {
   $('#progress').style.display = 'block';
   $('#progress-log').innerHTML = '';
   $('#progress-bar-fill').style.width = '0%';
+  const dimEl = document.getElementById('dim-status');
+  if (dimEl) dimEl.innerHTML = '';
 
   const body = {
     pr,
@@ -513,9 +526,12 @@ async function startReview() {
 function handleSSE(event, data) {
   switch (event) {
     case 'progress':
-      addProgress(data.phase, data.message);
+      addProgress(data.phase, data.message, data.etaSeconds);
       if (data.percent != null) {
         $('#progress-bar-fill').style.width = data.percent + '%';
+      }
+      if (data.dimensionStatus) {
+        renderDimStatus(data.dimensionStatus);
       }
       break;
     case 'done':
@@ -530,14 +546,30 @@ function handleSSE(event, data) {
   }
 }
 
-function addProgress(phase, msg) {
+function addProgress(phase, msg, etaSeconds) {
   const div = document.createElement('div');
   div.className = 'progress-line';
   const icon = phase === 'error' ? '✗' : phase === 'done' ? '✓' : '●';
   const color = phase === 'error' ? 'var(--red)' : phase === 'done' ? 'var(--green)' : 'var(--fg2)';
-  div.innerHTML = `<span style="color:${color};margin-right:6px">${icon}</span>${esc(msg)}`;
+  let text = `<span style="color:${color};margin-right:6px">${icon}</span>${esc(msg)}`;
+  if (etaSeconds != null && etaSeconds > 0) {
+    const mins = Math.ceil(etaSeconds / 60);
+    text += ` <span style="color:var(--fg2);font-size:11px">(预计剩余 ${mins} 分钟)</span>`;
+  }
+  div.innerHTML = text;
   $('#progress-log').appendChild(div);
   $('#content').scrollTop = $('#content').scrollHeight;
+}
+
+function renderDimStatus(status) {
+  const el = document.getElementById('dim-status');
+  if (!el) return;
+  el.innerHTML = Object.entries(status).map(([dim, state]) => {
+    const label = DIM_LABEL[dim] || dim;
+    const color = state === 'done' ? 'var(--green)' : state === 'running' ? 'var(--accent)' : state === 'failed' ? 'var(--red)' : 'var(--fg2)';
+    const icon = state === 'done' ? '✓' : state === 'running' ? '◉' : state === 'failed' ? '✗' : '○';
+    return `<span style="color:${color};padding:2px 6px;background:var(--bg3);border-radius:4px">${icon} ${label}</span>`;
+  }).join('');
 }
 
 // ─── 渲染结果 ────────────────────────────────────────────────
@@ -559,6 +591,7 @@ function renderResults(result) {
     <span>${r.pr.changedFiles} 文件 (+${r.pr.additions}/-${r.pr.deletions})</span>
     <span class="stat verdict-${VERDICT_LABEL[r.verdict] || r.verdict}">${VERDICT_LABEL[r.verdict] || r.verdict}</span>
     <span style="color:var(--fg2)">${Math.round(r.actionableRate*100)}% 可操作</span>
+    <button class="secondary" onclick="rerunReview()" style="margin-left:auto">重新审查</button>
   </div>`;
 
   // 中文摘要
@@ -616,6 +649,17 @@ function renderResults(result) {
   </div>`;
 
   $('#results').innerHTML = html;
+}
+
+function rerunReview() {
+  if (!lastReviewConfig) return;
+  const cfg = lastReviewConfig;
+  $('#pr-input').value = cfg.pr;
+  if (cfg.deep) $('#deep-toggle').checked = true;
+  if (cfg.dimensions) $('#dims-select').value = cfg.dimensions;
+  if (cfg.maxFiles) $('#maxfiles-input').value = cfg.maxFiles;
+  if (cfg.exclude) $('#exclude-input').value = cfg.exclude;
+  startReview();
 }
 
 // ─── 反馈 ──────────────────────────────────────────────────

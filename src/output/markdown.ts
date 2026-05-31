@@ -77,6 +77,34 @@ export function generateReport(result: ReviewResult): string {
     }
   }
 
+  // Per-file finding summary
+  lines.push("## Findings by File");
+  lines.push("");
+  lines.push("| File | CRITICAL | HIGH | MEDIUM | LOW | Total |");
+  lines.push("|------|----------|------|--------|-----|-------|");
+
+  const byFile = new Map<string, Record<Severity, number>>();
+  for (const f of result.findings) {
+    const file = f.file || "(unknown)";
+    if (!byFile.has(file)) {
+      byFile.set(file, { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 });
+    }
+    byFile.get(file)![f.severity]++;
+  }
+
+  const sortedFiles = [...byFile.entries()].sort((a, b) => {
+    const totalA = Object.values(a[1]).reduce((s, c) => s + c, 0);
+    const totalB = Object.values(b[1]).reduce((s, c) => s + c, 0);
+    if (totalA !== totalB) return totalB - totalA;
+    return a[0].localeCompare(b[0]);
+  });
+
+  for (const [file, counts] of sortedFiles) {
+    const total = Object.values(counts).reduce((s, c) => s + c, 0);
+    lines.push(`| ${file} | ${counts.CRITICAL || "-"} | ${counts.HIGH || "-"} | ${counts.MEDIUM || "-"} | ${counts.LOW || "-"} | ${total} |`);
+  }
+  lines.push("");
+
   // Dimensions coverage
   lines.push("## Review Dimensions");
   lines.push("");
@@ -166,6 +194,12 @@ export function generateInlineComments(
   return comments;
 }
 
+/** Map internal verdict to GitHub review event */
+function verdictToGitHubEvent(verdict: string): string {
+  if (verdict === "BLOCK" || verdict === "REQUEST_CHANGES") return "REQUEST_CHANGES";
+  return "COMMENT";
+}
+
 /**
  * Submit the review as a GitHub PR review via the API.
  * Posts both a summary body and inline line comments.
@@ -189,7 +223,8 @@ export async function submitGitHubReview(
         "User-Agent": "pr-review-assistant",
       },
       body: JSON.stringify({
-        event: "COMMENT",
+        event: verdictToGitHubEvent(result.verdict),
+        commit_id: result.pr.headSha,
         body,
         comments: comments.map((c) => ({
           path: c.path,

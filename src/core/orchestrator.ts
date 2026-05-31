@@ -25,7 +25,16 @@ import { saveReport, submitGitHubReview } from "../output/markdown.js";
  *   Phase 5: Report (terminal + markdown + GitHub)
  */
 export async function runReview(config: ReviewConfig): Promise<ReviewResult | null> {
-  const notify = config.onProgress ?? (() => {});
+  const startTime = Date.now();
+  const notifyRaw = config.onProgress ?? (() => {});
+  const notify = (event: Parameters<typeof notifyRaw>[0]): void => {
+    if (event.percent != null && event.percent > 0 && event.percent < 100) {
+      const elapsed = (Date.now() - startTime) / 1000;
+      const total = (elapsed / event.percent) * 100;
+      event.etaSeconds = Math.round(total - elapsed);
+    }
+    notifyRaw(event);
+  };
 
   // ─── Phase 1: Fetch ────────────────────────────────────
   const { owner, repo, number } = parseId(config);
@@ -330,12 +339,18 @@ async function runDimensionsParallel(
 ${extra}`;
   }
 
+  // Helper to build dimension status map
+  function buildDimStatus(state: Record<string, string>): Record<string, string> {
+    return Object.fromEntries(dimensions.map((d) => [d, state[d] ?? "pending"]));
+  }
+
   // If only one dimension, just run it
   if (dimensions.length === 1) {
     notify({
       phase: "review",
       message: `Reviewing: ${getDimensionLabel(dimensions[0]!) ?? dimensions[0]}...`,
       percent: 10,
+      dimensionStatus: buildDimStatus({ [dimensions[0]!]: "running" }),
     });
     try {
       return await client.review(
@@ -359,6 +374,7 @@ ${extra}`;
     phase: "review",
     message: `Reviewing: ${getDimensionLabel(first!) ?? first} (warmup + caching)...`,
     percent: 5,
+    dimensionStatus: buildDimStatus({ [first!]: "running" }),
   });
 
   const allFindings: Finding[] = [];
@@ -371,10 +387,13 @@ ${extra}`;
       first!
     );
     allFindings.push(...firstFindings);
+    const restRunning: Record<string, string> = { [first!]: "done" };
+    for (const d of rest) restRunning[d] = "running";
     notify({
       phase: "review",
       message: `${getDimensionLabel(first!) ?? first}: ${firstFindings.length} finding(s)`,
       percent: 15,
+      dimensionStatus: buildDimStatus(restRunning),
     });
   } catch (error) {
     notify({
@@ -402,14 +421,18 @@ ${extra}`;
       )
     );
 
+    const doneDims: Record<string, string> = { [first!]: "done" };
+    for (const d of rest) doneDims[d] = "running";
     for (const result of results) {
       if (result.status === "fulfilled") {
         const { dim, findings } = result.value;
         allFindings.push(...findings);
+        doneDims[dim] = "done";
         notify({
           phase: "review",
           message: `${getDimensionLabel(dim) ?? dim}: ${findings.length} finding(s)`,
           percent: 25 + (result.value.index / rest.length) * 25,
+          dimensionStatus: buildDimStatus(doneDims),
         });
       } else {
         notify({
