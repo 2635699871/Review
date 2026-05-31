@@ -1,7 +1,7 @@
 # AI PR Review Assistant
 
 AI-powered Pull Request review tool that helps developers improve PR review efficiency and quality. Specify a GitHub PR, and the system automatically fetches changes, performs intelligent multi-dimensional analysis, and generates actionable review findings — with Chinese brief review support.
-
+视频链接https://www.bilibili.com/video/BV1DbVU69EG9/
 ## Features
 
 - **Multi-Dimensional Review** — 9 parallel review dimensions:
@@ -13,7 +13,7 @@ AI-powered Pull Request review tool that helps developers improve PR review effi
   - **Efficiency** — Spots redundant computation, sync blocking, missing parallelism
   - **Altitude** — Checks whether changes fix root causes or just add fragile special cases
   - **Python Patterns** — GREP-style scanners for Python-specific: unused params, dict.get leak, missing makedirs, bare except, missing dedup
-  - **Security** — Hardcoded credentials, SQL/XSS injection, path traversal, unsafe deserialization, OWASP Top 10
+  - **安全** — Hardcoded credentials, SQL/XSS injection, path traversal, unsafe deserialization, OWASP Top 10
 - **Chinese Brief Review** — Per-finding Chinese one-line assessment (zhBrief) generated at near-zero cost via LLM prompt injection; overall Chinese summary paragraph (zhSummary) via lightweight LLM call
 - **Smart Filtering** — Built-in exclusion of lockfiles, generated code, binaries, vendor directories; plus custom glob exclusion patterns (`--exclude "*.generated.*,src/vendor/**"`)
 - **Confidence Gate** — 4-question pre-report filter that drops vague/unverified findings
