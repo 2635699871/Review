@@ -9,6 +9,7 @@ const ALL_DIMENSIONS: Dimension[] = [
   "efficiency",
   "altitude",
   "security",
+  "python-patterns",
 ];
 
 /** Parse PR identifier from user input (URL or shorthand) */

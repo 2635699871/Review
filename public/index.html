@@ -144,7 +144,7 @@
         <div class="form-group">
           <label for="dims-select">审查维度</label>
           <select id="dims-select">
-            <option value="">全部（8 项）</option>
+            <option value="">全部（9 项）</option>
             <option value="line-scan">行级扫描</option>
             <option value="removed-behavior">删除影响</option>
             <option value="cross-file">跨文件</option>
@@ -153,6 +153,7 @@
             <option value="efficiency">效率</option>
             <option value="altitude">架构</option>
             <option value="security">安全</option>
+            <option value="python-patterns">Python模式</option>
           </select>
         </div>
         <div class="form-group">
@@ -256,7 +257,7 @@ const SEV_LABEL = { CRITICAL: '严重', HIGH: '重要', MEDIUM: '中等', LOW: '
 const SEV_ICON = { CRITICAL: '⛔', HIGH: '⚠', MEDIUM: 'ℹ', LOW: '○' };
 const SEV_CSS = { CRITICAL: '严重', HIGH: '重要', MEDIUM: '中等', LOW: '建议' };
 const VERDICT_LABEL = { BLOCK: '阻断', REQUEST_CHANGES: '需修改', COMMENT: '通过' };
-const DIM_LABEL = { 'line-scan': '行级扫描', 'removed-behavior': '删除影响', 'cross-file': '跨文件', reuse: '复用', simplification: '简化', efficiency: '效率', altitude: '架构', security: '安全' };
+const DIM_LABEL = { 'line-scan': '行级扫描', 'removed-behavior': '删除影响', 'cross-file': '跨文件', reuse: '复用', simplification: '简化', efficiency: '效率', altitude: '架构', security: '安全', 'python-patterns': 'Python模式' };
 let lastReviewConfig = null; // saved for re-review
 const PHASE_LABEL = { fetch: '获取中', filter: '筛选中', review: '审查中', aggregate: '汇总中', report: '生成报告' };
 

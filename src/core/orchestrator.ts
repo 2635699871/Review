@@ -157,14 +157,17 @@ export async function runReview(config: ReviewConfig): Promise<ReviewResult | nu
     notify,
     dimensionExtraContext,
   );
+  console.error(`[orch] rawFindings from review: ${rawFindings.length}`);
 
   // Verify code_quote grounding — adjust confidence dynamically
   const verifiedFindings = verifyFindings(rawFindings, diffText, fileCategory.filtered);
+  console.error(`[orch] after verifyFindings: ${verifiedFindings.length}`);
 
   // ─── Phase 4: Aggregate ───────────────────────────────
   notify({ phase: "aggregate", message: "Aggregating and filtering findings...", percent: 60 });
 
   const { findings: ranked, dropped, downgraded, actionableRate } = aggregate(verifiedFindings);
+  console.error(`[orch] after aggregate: kept=${ranked.length} dropped=${dropped} downgraded=${downgraded}`);
 
   notify({
     phase: "aggregate",
@@ -180,6 +183,8 @@ export async function runReview(config: ReviewConfig): Promise<ReviewResult | nu
     ranked.length > 0
       ? await verifyFindingsLLM(verifyClient, diffText, ranked, notify)
       : ranked;
+
+  console.error(`[orch] after LLM verify: ${verifiedRanked.length} (was ${ranked.length})`);
 
   const finalVerdict = determineVerdict(verifiedRanked);
 
@@ -611,10 +616,12 @@ async function verifyFindingsLLM(
   let refuted = 0;
 
   const kept: Finding[] = [];
-  for (const result of results) {
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]!;
     if (result.status !== "fulfilled") {
-      // Keep findings that failed verification (don't lose data on API error)
+      // Verify call failed — keep as PLAUSIBLE so user knows to check manually
       plausible++;
+      kept.push({ ...findings[i]!, verdict: "PLAUSIBLE" });
       continue;
     }
 
@@ -626,6 +633,7 @@ async function verifyFindingsLLM(
       kept.push({
         ...finding,
         confidence: Math.min(1.0, Math.round((finding.confidence + 0.10) * 100) / 100),
+        verdict: "CONFIRMED",
       });
     } else if (upper.startsWith("REFUTED")) {
       refuted++;
@@ -635,10 +643,11 @@ async function verifyFindingsLLM(
         severity: "LOW",
         confidence: Math.max(0.1, Math.round((finding.confidence - 0.20) * 100) / 100),
         issue: `${finding.issue}`,
+        verdict: "REFUTED",
       });
     } else {
       plausible++;
-      kept.push(finding);
+      kept.push({ ...finding, verdict: "PLAUSIBLE" });
     }
   }
 

@@ -95,6 +95,7 @@ function createAnthropicClientSync(config: ProviderConfig): LLMClient {
 
       const textBlock = response.content.find((b: any) => b.type === "text");
       const text = (textBlock && "text" in textBlock) ? (textBlock as any).text : "";
+      console.error(`[raw-response] ${dimension}:\n${text.slice(0, 500)}\n---END---`);
       return parseFindings(text, dimension);
     },
 
@@ -199,7 +200,12 @@ function createOpenAICompatibleClientSync(config: ProviderConfig): LLMClient {
             );
           }
 
-          return parseFindings(data.choices?.[0]?.message?.content ?? "", dimension);
+          const rawText = data.choices?.[0]?.message?.content ?? "";
+          const msgKeys = data.choices?.[0]?.message ? Object.keys(data.choices[0].message) : [];
+          const { writeFileSync } = await import("node:fs");
+          writeFileSync(`/tmp/llm-${dimension}.txt`, rawText, "utf-8");
+          console.error(`[raw-response] ${dimension} msgKeys=${msgKeys.join(",")} contentLen=${rawText.length} saved`);
+          return parseFindings(rawText, dimension);
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error));
           if (attempt < maxRetries - 1 && !(lastError.message.includes("API error (4"))) {
@@ -241,30 +247,38 @@ function createOpenAICompatibleClientSync(config: ProviderConfig): LLMClient {
     },
 
     async verify(systemPrompt, findingInfo, diffContext) {
-      const response = await fetch(baseUrl + "/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: config.model,
-          max_tokens: 256,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: diffContext + "\n\n" + findingInfo },
-          ],
-          temperature: 0,
-        }),
-      });
+      try {
+        const response = await fetch(baseUrl + "/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${config.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: config.model,
+            max_tokens: 256,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: diffContext + "\n\n" + findingInfo },
+            ],
+            temperature: 0,
+          }),
+        });
 
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Verify API error (${response.status}): ${errText.slice(0, 200)}`);
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error(`[verify] HTTP ${response.status}: ${errText.slice(0, 200)}`);
+          throw new Error(`Verify API error (${response.status}): ${errText.slice(0, 200)}`);
+        }
+
+        const data: any = await response.json();
+        const verdict = (data.choices?.[0]?.message?.content ?? "").trim();
+        console.error(`[verify] ok verdict=${verdict.slice(0, 60)}`);
+        return verdict;
+      } catch (error) {
+        console.error(`[verify] FAIL: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
       }
-
-      const data: any = await response.json();
-      return (data.choices?.[0]?.message?.content ?? "").trim();
     },
   };
 }
@@ -298,13 +312,13 @@ Review the above diff for **${dimension}** issues. For each finding, output JSON
 \`\`\`
 
 Rules:
-- Only report findings you are highly confident about (>80%)
+- Report ANY issue you suspect could be a real problem, no matter how small the chance. False positives are welcome — they get verified later. Missed bugs are unacceptable.
 - Each finding MUST reference a specific line in the diff
 - Each finding MUST include \`code_quote\` — copy-paste the exact line(s) from the diff that triggered the finding. This proves the finding is grounded in real code, not speculation.
 - Skip style issues that a linter would catch
 - Skip generic patterns like "needs error handling" without concrete failure mode
 - For zh_brief: write a concise one-line Chinese assessment (under 30 chars). Focus on the core risk or impact.
-- If there are no issues, return {"findings": []}
+- If there are genuinely no issues, return {"findings": []}
 `;
 }
 
@@ -312,7 +326,7 @@ function parseFindings(text: string, dimension: Dimension): Finding[] {
   try {
     const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     const jsonStr = jsonMatch ? jsonMatch[1]! : text;
-
+    console.error(`[parse] ${dimension} hasFence=${!!jsonMatch} jsonLen=${jsonStr.length}`);
     const parsed = JSON.parse(jsonStr);
     const rawFindings: Array<{
       severity: string;
@@ -324,7 +338,7 @@ function parseFindings(text: string, dimension: Dimension): Finding[] {
       code_quote?: string;
       zh_brief?: string;
     }> = Array.isArray(parsed.findings) ? parsed.findings : [];
-
+    console.error(`[parse] ${dimension} parsedFindings=${rawFindings.length}`);
     return rawFindings.map((f) => ({
       severity: normalizeSeverity(f.severity),
       dimension,

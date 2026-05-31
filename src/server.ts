@@ -19,6 +19,11 @@ import { getProvider, PROVIDER_REGISTRY } from "./models/provider-registry.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, "..", "public");
 
+function sanitizeModel(name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  return name.replace(/\x1b\[[0-9;]*m/g, "").trim();
+}
+
 export function createApp() {
   const app = express();
   app.use(express.json());
@@ -72,9 +77,9 @@ export function createApp() {
         provider: (typeof provider === "string" ? provider : "anthropic") as ProviderType,
         apiKey: typeof apiKey === "string" ? apiKey : undefined,
         apiBaseUrl: typeof apiBaseUrl === "string" ? apiBaseUrl : undefined,
-        modelOverride: typeof modelOverride === "string" ? modelOverride : undefined,
-        reviewModel: typeof reviewModel === "string" ? reviewModel : undefined,
-        verifyModel: typeof verifyModel === "string" ? verifyModel : undefined,
+        modelOverride: sanitizeModel(typeof modelOverride === "string" ? modelOverride : undefined),
+        reviewModel: sanitizeModel(typeof reviewModel === "string" ? reviewModel : undefined),
+        verifyModel: sanitizeModel(typeof verifyModel === "string" ? verifyModel : undefined),
         githubToken: typeof githubToken === "string" ? githubToken : undefined,
       };
     } catch (err) {

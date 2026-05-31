@@ -34,7 +34,11 @@ Focus exclusively on bugs visible in the diff hunks:
 - **Exception handling**: swallowed errors (empty catch), lost stack traces, overbroad catch
 - **Type safety**: unsafe casts, 'any' misuse, incorrect type narrowing
 - **Control flow**: unreachable code, fall-through in switch, missing return, infinite loops
-- **Unused parameters**: a function accepts a parameter but hardcodes a literal in the body (e.g., "amount" is ignored and "1" is used instead)
+- **Unused parameters**: a function declares a parameter but ignores it in the body — the body uses a hardcoded literal instead. Example: \`def deduct(ip, amount):\` body does \`-= 1\` not \`-= amount\`. This is a real bug: the caller expects the parameter to be honored but it silently isn't.
+- **Default-without-writeback patterns**: a \`.get(key, default)\` or \`.get(key, {})\` that returns a default but NEVER writes it back to the dict/map. Example: \`d.get(k, {"n":100})\` returns a dict but doesn't store it — next lookup returns a fresh dict. This means decrement operations on the returned value are silently lost.
+- **Missing deduplication**: lists/collections built by appending without any duplicate check (no Set, no "if x not in" guard). Repeated calls or rapid double-clicks will insert duplicates.
+- **File I/O without directory creation**: \`open()\`, \`json.dump()\`, or any file write that doesn't call \`os.makedirs(dir, exist_ok=True)\` or \`pathlib.Path.mkdir(parents=True, exist_ok=True)\` first. If the parent directory doesn't exist, the write crashes at runtime.
+- **Bare except (Python)**: \`except:\` or \`except Exception:\` with only \`pass\` in the body. Silently swallows ALL exceptions including KeyboardInterrupt and SystemExit, making failures invisible. Must at minimum log the error or catch a specific type.
 
 Confidence:
 - CRITICAL: provable bug causing incorrect production behavior
@@ -53,7 +57,38 @@ const result = await process(config.settings.theme);
 \`\`\`
 \`loadConfig()\` returns \`null\` on missing config (line 42 shows \`return null\` in catch). Accessing \`.settings\` on null crashes with TypeError.
 Severity: CRITICAL — crashes on a realistic error path.
-Fix: Add \`if (!config) return defaultValue;\` before accessing .settings.`, "Line Scan");
+Fix: Add \`if (!config) return defaultValue;\` before accessing .settings.
+
+**HIGH: function ignores its parameter**
+\`\`\`python
+def deduct_quota(ip: str, amount: int):
+    quota = _user_quotas.get(ip, {"remaining": 100})
+    if quota["remaining"] > 0:
+        quota["remaining"] -= 1  # BUG: hardcoded 1, should be \`-= amount\`
+\`\`\`
+The caller passes \`amount\` but the body uses \`1\` instead.
+Severity: HIGH - silently ignores caller input, producing wrong results.
+Fix: Change \`-= 1\` to \`-= amount\`.
+
+**MEDIUM: dict.get() default never written back**
+\`\`\`python
+def check_quota(ip: str):
+    q = _user_quotas.get(ip, {"remaining": 100, "used": 0})
+    return q["remaining"] > 0
+\`\`\`
+\`q\` is a fresh dict returned by \`.get()\` but never stored into \`_user_quotas\`.
+Severity: HIGH - default state leaks, mutations silently discarded.
+Fix: \`_user_quotas.setdefault(ip, {"remaining": 100, "used": 0})\`.
+
+**MEDIUM: file write without ensuring parent directory exists**
+\`\`\`python
+def save_model_info(name: str, info: dict):
+    path = os.path.join(CACHE_DIR, f"{name}.json")
+    json.dump(info, open(path, "w"))  # BUG: crashes if CACHE_DIR missing
+\`\`\`
+\`CACHE_DIR\` may not exist (fresh deploy, cleaned tmp). \`open(path, "w")\` throws FileNotFoundError.
+Severity: MEDIUM - crashes on first invocation under normal deployment.
+Fix: Add \`os.makedirs(CACHE_DIR, exist_ok=True)\` before opening the file.`, "Line Scan");
 
 registerDimension("removed-behavior", `You are reviewing a PR for **invariants that were deleted without replacement**.
 
@@ -281,6 +316,39 @@ app.get('/users', async (req, res) => {
 \`\`\`
 The \`name\` query parameter is interpolated directly into SQL without parameterization. An attacker visiting \`/users?name='; DROP TABLE users; --\` executes arbitrary SQL.
 Fix: Use parameterized queries: \`db.query('SELECT * FROM users WHERE name = ?', [name])\`.`, "Security");
+
+registerDimension("python-patterns", `You are a Python static analysis expert. Scan EVERY line of the diff for these 5 specific bug patterns. Flag ALL matches — do not stop after finding one.
+
+## Pattern 1: Unused Function Parameter (HARDCODED CONSTANT)
+A function declares a parameter but the body uses a hardcoded constant instead.
+Example: \`def deduct(ip, amount):\` ...body does \`-= 1\` not \`-= amount\`
+The parameter is declared but completely ignored — the body uses a different value.
+GREP FOR: any function parameter name that never appears in the function body.
+
+## Pattern 2: dict.get() Default Never Stored (LEAKED DEFAULT)
+\`d.get(key, default_value)\` or \`d.get(key, {})\` — the default is returned but NEVER written back.
+Any mutation on the returned default (decrement, increment, append) is silently lost.
+Next call with same missing key gets a FRESH default.
+GREP FOR: \`.get(\` that provides a default but has no corresponding \`[...]\` assignment.
+
+## Pattern 3: File Write Without os.makedirs (DIRECTORY MISSING)
+\`open(path, "w")\` or \`json.dump(data, open(path, "w"))\` without \`os.makedirs\` first.
+If the parent directory does not exist, this crashes with FileNotFoundError.
+GREP FOR: \`open(\` or \`json.dump\` without \`makedirs\` or \`mkdir\` in the same function.
+
+## Pattern 4: Bare except: pass (SILENT SWALLOW)
+\`except:\` or \`except Exception:\` whose body is only \`pass\` or a single trivial statement.
+This swallows ALL exceptions including KeyboardInterrupt. Failures become invisible.
+GREP FOR: every bare except in the entire diff. Flag EACH one individually.
+
+## Pattern 5: Missing Deduplication (DUPLICATE INSERTION)
+A list is built by appending without any duplicate check (no \`set\`, no \`if x not in\`).
+Repeated calls or rapid clicks insert duplicates.
+GREP FOR: \`.append(\` without nearby dedup guard.
+
+Confidence: Base on code evidence alone. If no matches found, return empty findings.
+
+Output JSON with the standard format. For each finding, include the exact code_quote from the diff.`, "Python Patterns");
 
 /** Get the system prompt for a dimension (falls back to line-scan) */
 export function getDimensionPrompt(dimension: Dimension): string {

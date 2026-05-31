@@ -19,9 +19,11 @@ export function verifyFindings(
 
   return findings.map((f) => {
     let confidence = f.confidence;
+    let codeMatchLevel: "full" | "partial" | "none" = "none";
 
     // Check 1: file existence
-    if (f.file && !fileNames.has(f.file)) {
+    const fileExists = f.file && fileNames.has(f.file);
+    if (f.file && !fileExists) {
       confidence -= 0.15;
     }
 
@@ -37,17 +39,27 @@ export function verifyFindings(
         const matchCount = quoteLines.filter((line) => diffText.includes(line)).length;
         if (matchCount === quoteLines.length) {
           confidence += 0.10;
+          codeMatchLevel = "full";
         } else if (matchCount > 0) {
           confidence += 0.08;
+          codeMatchLevel = "partial";
         } else {
           confidence -= 0.05;
         }
       }
     }
 
+    // Preliminary verdict from code-level evidence.
+    // LLM verify (verifyFindingsLLM) can override this with a stronger signal later.
+    const verdict: "CONFIRMED" | "PLAUSIBLE" =
+      fileExists && (codeMatchLevel === "full" || codeMatchLevel === "partial")
+        ? "CONFIRMED"
+        : "PLAUSIBLE";
+
     return {
       ...f,
       confidence: clamp(confidence),
+      verdict,
     };
   });
 }

@@ -31,6 +31,7 @@ const DIMENSION_LABELS: Record<string, string> = {
   efficiency: "Efficiency",
   altitude: "Altitude",
   security: "Security",
+  "python-patterns": "Python Patterns",
 };
 
 /** Render the full terminal review output */
@@ -74,47 +75,32 @@ export function renderTerminal(result: ReviewResult): string {
     lines.push("");
   }
 
-  // Findings by severity
-  const severities: Severity[] = [...SEVERITY_ORDER];
-  for (const severity of severities) {
-    const group = result.findings.filter((f) => f.severity === severity);
-    if (group.length === 0) continue;
+  // Split findings by verification status
+  const confirmedFindings = result.findings.filter((f) => f.verdict === "CONFIRMED");
+  const plausibleFindings = result.findings.filter((f) => f.verdict !== "CONFIRMED");
 
-    const color = SEVERITY_COLORS[severity];
-    const icon = SEVERITY_ICONS[severity];
-    const count = counts[severity];
-
+  const multiDimCount = result.findings.filter((f) => f.dimension.includes(", ")).length;
+  if (multiDimCount > 0) {
     lines.push("");
     lines.push(
-      color(
-        `  ${icon} ${severity} (${count})`
-      ) +
-        severityDetail(severity)
+      chalk.magenta(`  ${multiDimCount} finding(s) confirmed by 2+ review dimensions — higher confidence`)
     );
-    lines.push("  " + "-".repeat(48));
+  }
 
-    for (const finding of group) {
-      lines.push("");
-      lines.push(
-        color(`  [${finding.severity}]`) +
-          " " +
-          chalk.white(finding.issue)
-      );
-      lines.push(
-        chalk.gray(`  Dimension: ${finding.dimension.split(", ").map((d) => DIMENSION_LABELS[d] ?? d).join(", ")}`)
-      );
-      lines.push(
-        chalk.gray(
-          `  File: ${finding.file}${finding.line ? ":" + finding.line : ""}`
-        )
-      );
-      if (finding.fix && finding.fix !== "See issue description") {
-        lines.push(chalk.green(`  Fix:     ${finding.fix}`));
-      }
-      if (finding.zhBrief) {
-        lines.push(chalk.gray(`  简评:    ${finding.zhBrief}`));
-      }
-    }
+  // ── Confirmed findings ──
+  if (confirmedFindings.length > 0) {
+    lines.push("");
+    lines.push(chalk.bold.green("  ── Confirmed Issues ──"));
+    lines.push(chalk.gray(`  ${confirmedFindings.length} finding(s) with high confidence`));
+    renderSeverityGroups(confirmedFindings, lines);
+  }
+
+  // ── Plausible / uncertain findings ──
+  if (plausibleFindings.length > 0) {
+    lines.push("");
+    lines.push(chalk.bold.yellow("  ── Plausible / Needs Verification ──"));
+    lines.push(chalk.gray(`  ${plausibleFindings.length} finding(s) — review manually before deciding`));
+    renderSeverityGroups(plausibleFindings, lines);
   }
 
   // Empty state
@@ -213,6 +199,54 @@ function wrapText(text: string, maxWidth: number): string[] {
   }
   if (current.trim()) lines.push(current.trim());
   return lines;
+}
+
+function renderSeverityGroups(findings: Finding[], lines: string[]): void {
+  const counts = countBySeverity(findings);
+  const severities: Severity[] = [...SEVERITY_ORDER];
+  for (const severity of severities) {
+    const group = findings.filter((f) => f.severity === severity);
+    if (group.length === 0) continue;
+
+    const color = SEVERITY_COLORS[severity];
+    const icon = SEVERITY_ICONS[severity];
+    const count = counts[severity];
+
+    lines.push("");
+    lines.push(
+      color(`  ${icon} ${severity} (${count})`) +
+        severityDetail(severity)
+    );
+    lines.push("  " + "-".repeat(48));
+
+    for (const finding of group) {
+      const dims = finding.dimension.split(", ");
+      const dimCount = dims.length;
+      const consensusTag = dimCount > 1 ? chalk.magenta(`  ×${dimCount}`) : "";
+
+      lines.push("");
+      lines.push(
+        color(`  [${finding.severity}]`) +
+          consensusTag +
+          " " +
+          chalk.white(finding.issue)
+      );
+      lines.push(
+        chalk.gray(`  Dimension: ${dims.map((d) => DIMENSION_LABELS[d] ?? d).join(", ")}`)
+      );
+      lines.push(
+        chalk.gray(
+          `  File: ${finding.file}${finding.line ? ":" + finding.line : ""}`
+        )
+      );
+      if (finding.fix && finding.fix !== "See issue description") {
+        lines.push(chalk.green(`  Fix:     ${finding.fix}`));
+      }
+      if (finding.zhBrief) {
+        lines.push(chalk.gray(`  简评:    ${finding.zhBrief}`));
+      }
+    }
+  }
 }
 
 function stripAnsi(text: string): string {

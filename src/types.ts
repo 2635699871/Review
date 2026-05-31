@@ -72,6 +72,8 @@ export interface Finding {
   zhBrief?: string;
   /** Exact code line(s) from the diff that triggered this finding (used for grounding verification) */
   codeQuote?: string;
+  /** LLM verification verdict — CONFIRMED / PLAUSIBLE / REFUTED */
+  verdict?: "CONFIRMED" | "PLAUSIBLE" | "REFUTED";
 }
 
 /** Aggregated review result */
