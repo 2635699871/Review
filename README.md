@@ -149,6 +149,86 @@ User Input → [Phase 1: Fetch] → [Phase 2: Filter] → [Phase 3: Review] → 
 | **Confidence** | 4-question gate | Proven pattern from ECC code-reviewer; directly addresses signal-to-noise |
 | **Chinese review** | Hybrid (prompt injection + lightweight call) | zhBrief via LLM prompt at near-zero cost; zhSummary via small separate call |
 
+## Design Philosophy
+
+### Model Selection: Dual-Model Pipeline
+
+Traditional AI review tools use a single model for both finding bugs and judging their validity, but these two tasks demand contradictory model qualities:
+
+| Phase | Goal | Model Trait | Best Fit |
+|-------|------|-------------|----------|
+| **Review (finder)** | High recall — surface every possible issue | Follows instructions literally, doesn't self-censor "obvious" bugs | Smaller models: deepseek-chat, gpt-4o-mini |
+| **Verify (judge)** | High precision — independently judge each finding | Strong reasoning, evaluates evidence, resists finder bias | Reasoning models: deepseek-reasoner, claude-opus |
+
+The pipeline separates these roles:
+
+```
+finder model → raw findings → code-level verify (code_quote vs diff)
+                                   ↓
+                              LLM verify (independent judgment)
+                                   ↓
+                         CONFIRMED / PLAUSIBLE / REFUTED
+```
+
+Users specify both models via `--review-model` and `--verify-model`; if only one is set, the verifier reuses the finder.
+
+This design is backed by observed LLM behavior: small models strictly follow prompts and report more findings (higher recall), while large models tend to self-censor borderline cases. Pairing a cheap, high-recall finder with a strong, high-precision verifier captures the best of both while keeping costs low.
+
+### Multi-Provider Abstraction
+
+All 16 providers are defined in a 6-field registry ([provider-registry.ts](src/models/provider-registry.ts)). The router ([provider-router.ts](src/models/provider-router.ts)) branches on a single field — `apiFormat: "anthropic" | "openai-compatible"` — to select the right client:
+
+| Format | Providers | Features |
+|--------|-----------|----------|
+| **Anthropic native SDK** | Anthropic | Native [prompt caching](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching) (`cache_control: ephemeral`) + [thinking mode](https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking) — ~90% input cost savings on cached content |
+| **OpenAI-compatible fetch** | All 15 others | Standard `/chat/completions` endpoint with 3-retry exponential backoff on 5xx / 429 |
+
+Adding a new provider requires only one entry in the registry — no router changes needed.
+
+### Anthropic Prompt Caching: Warmup-then-Burst
+
+The diff text is identical across all 9 dimensions and accounts for 80%+ of input tokens. The orchestrator ([orchestrator.ts](src/core/orchestrator.ts)) uses a two-phase strategy:
+
+```
+Dimension 1 (solo) → writes diff to prompt cache
+        ↓
+Dimensions 2–9 (parallel) → read from cache, pay only incremental tokens
+```
+
+The solo first dimension also acts as a canary — if the API key is wrong or the model doesn't exist, it fails fast before launching 8 parallel calls.
+
+### Context Acquisition: Three Progressive Levels
+
+Review context is built in tiers to avoid wasting tokens on information the PR doesn't need ([context-builder.ts](src/pipeline/context-builder.ts)):
+
+| Level | When | What | Covers |
+|-------|------|------|--------|
+| **L1: Diff hunks** | Always | Each file's `patch` ( +/- lines with surrounding context) | ~70% of bugs are visible from diff alone |
+| **L2: Full files** | High-risk source files (`.ts`, `.py`, `.go`, `.rs`, `.java`, etc.) | Complete file content fetched via GitHub API from head ref | Cross-function calls, type definitions, unused imports |
+| **L3: Repo conventions** | `--deep` mode | 4 convention files (CLAUDE.md, CONTRIBUTING.md, etc.) + auto-discovered config files (28 patterns: package.json, tsconfig.json, .eslintrc.*, Dockerfile, Makefile, etc.) | Framework conventions, lint rules, project-specific context |
+
+In deep mode, the system probes 28 config file patterns in parallel (`Promise.allSettled`), injects found files (capped at 12, truncated to 6000 chars each) into `repoConventions`, which every dimension's system prompt can reference. This grounds the review in the project's actual tech stack rather than guesswork.
+
+### Cross-File Tracing (Differential Context)
+
+The cross-file dimension receives context that no other dimension sees ([context-builder.ts L235-L302](src/pipeline/context-builder.ts#L235-L302)):
+
+1. Extract changed function/class/method names from diff hunks via regex
+2. Search all other files (full content when available) for these symbols using word-boundary matching
+3. Generate 5-line caller snippets for each external call site
+4. Inject only into the `cross-file` dimension's prompt — other dimensions stay clean
+
+This prevents context pollution while giving the cross-file reviewer exactly the information it needs to check for broken contracts.
+
+### Future Directions
+
+- **RAG-enhanced context** — Index past reviews, ADRs, and team style guides via vector store; auto-retrieve relevant context for each PR based on changed files and symbols.
+- **Review quality feedback loop** — The 👍/👎 buttons in the Web UI already persist feedback. Future: tune per-dimension severity defaults based on false-positive rates, suppress recurring noise patterns automatically.
+- **Incremental review** — Track previously-reviewed file/sha pairs; skip unchanged code sections in subsequent PRs and surface only net-new findings.
+- **Multi-model ensemble** — Run the same dimension across N different models; cross-model voting boosts confidence on findings that multiple models independently report.
+- **Custom dimension plugins** — Let teams define review dimensions as files in `.pr-review/dimensions/`; auto-load at startup. Stable prompt contract: input format → output JSON schema → severity criteria.
+- **IDE integration** — VS Code / JetBrains extension: sidebar findings list, click-to-navigate to line, inline severity markers. Architecture-ready: the existing Express + SSE pipeline only needs a WebSocket transport layer.
+
 ## Project Structure
 
 ```
