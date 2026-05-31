@@ -157,9 +157,12 @@ export function generateGitHubBody(result: ReviewResult): string {
   if (result.findings.length === 0) {
     parts.push(":white_check_mark: No issues found.");
   } else {
+    const confirmedCount = result.findings.filter((f) => f.verdict === "CONFIRMED").length;
+    const plausibleCount = result.findings.length - confirmedCount;
     parts.push(
       `:mag: **${result.findings.length} finding(s)** | ${counts.CRITICAL} critical, ${counts.HIGH} high, ${counts.MEDIUM} medium, ${counts.LOW} low`
     );
+    parts.push(`:white_check_mark: 已确认: ${confirmedCount} | :warning: 存疑: ${plausibleCount}`);
     parts.push(`:bar_chart: Actionable rate: ${Math.round(result.actionableRate * 100)}%`);
     parts.push(`:scales: Verdict: **${result.verdict}**`);
   }
@@ -182,11 +185,12 @@ export function generateInlineComments(
   for (const f of findings) {
     if (f.line != null && f.file) {
       const sev = f.severity === "CRITICAL" ? "🔴" : f.severity === "HIGH" ? "🟡" : "🔵";
+      const verdictLabel = f.verdict === "CONFIRMED" ? "已确认" : "存疑";
       const zhLine = f.zhBrief ? `\n\n简评: ${f.zhBrief}` : "";
       comments.push({
         path: f.file,
         line: f.line,
-        body: `${sev} **${f.severity}** (${f.dimension}): ${f.issue}${zhLine}\n\nSuggested fix: ${f.fix}`,
+        body: `${sev} **${f.severity}** [${verdictLabel}] (${f.dimension}): ${f.issue}${zhLine}\n\nSuggested fix: ${f.fix}`,
       });
     }
   }

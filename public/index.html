@@ -80,6 +80,9 @@
   .finding-item .fi-fix { font-size: 13px; color: var(--green); }
   .finding-item .fi-zhbrief { font-size: 13px; color: var(--yellow); margin: 4px 0; padding: 4px 8px; background: rgba(210,153,34,0.08); border-radius: 4px; border-left: 2px solid var(--yellow); }
   .finding-item .fi-confidence { font-size: 11px; color: var(--fg2); }
+  .verdict-tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+  .verdict-confirmed { background: rgba(76,175,80,0.15); color: #4caf50; border: 1px solid rgba(76,175,80,0.3); }
+  .verdict-suspicious { background: rgba(255,152,0,0.12); color: #ff9800; border: 1px solid rgba(255,152,0,0.3); }
   .fb-btn { font-size: 11px; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg3); color: var(--fg2); cursor: pointer; transition: all 0.15s; }
   .fb-btn:hover { border-color: var(--fg2); color: var(--fg); }
   .fb-useful:hover { border-color: var(--green); color: var(--green); }
@@ -625,7 +628,10 @@ function renderResults(result) {
           <span class="fi-category">${esc(f.category)}</span>
           <span class="fi-dim">${DIM_LABEL[f.dimension] || f.dimension}</span>
         </div>
-        <div class="fi-issue">${esc(f.issue)}</div>
+        <div class="fi-issue">
+          ${f.verdict === 'CONFIRMED' ? '<span class="verdict-tag verdict-confirmed">已确认</span> ' : '<span class="verdict-tag verdict-suspicious">存疑</span> '}
+          ${esc(f.issue)}
+        </div>
         ${f.zhBrief ? `<div class="fi-zhbrief">简评：${esc(f.zhBrief)}</div>` : ''}
         ${f.fix && f.fix !== 'See issue description' ? `<div class="fi-fix">修复建议：${esc(f.fix)}</div>` : ''}
         <div style="display:flex;align-items:center;gap:12px;margin-top:6px">
