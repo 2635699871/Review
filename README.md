@@ -1,7 +1,6 @@
 # AI PR Review Assistant
 
 AI-powered Pull Request review tool that helps developers improve PR review efficiency and quality. Specify a GitHub PR, and the system automatically fetches changes, performs intelligent multi-dimensional analysis, and generates actionable review findings — with Chinese brief review support.
-视频链接https://www.bilibili.com/video/BV1DbVU69EG9/
 ## Features
 
 - **Multi-Dimensional Review** — 9 parallel review dimensions:
@@ -330,7 +329,6 @@ All code under `src/` is original work developed during the competition window (
 
 ## Originality Statement
 
-本项目（pr-review-assistant）在 2026 年 5 月 29 日至 31 日比赛期间从零自主开发，未复用任何个人旧代码或第三方 AI Review 工具的核心逻辑。所有代码原创，无抄袭。
 
 ## License
 
