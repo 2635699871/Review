@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: pr-review-assistant
+    env: node
+    buildCommand: npm install
+    startCommand: npx tsx src/server.ts
+    envVars:
+      - key: PORT
+        value: "3300"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
