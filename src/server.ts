@@ -16,21 +16,22 @@ import {
 import type { ReviewConfig, ReviewProgress, ProviderType } from "./types.js";
 import { getProvider, PROVIDER_REGISTRY } from "./models/provider-registry.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const publicDir = path.resolve(__dirname, "..", "public");
+const __dirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+const defaultPublicDir = path.resolve(__dirname, "..", "public");
 
 function sanitizeModel(name: string | undefined): string | undefined {
   if (!name) return undefined;
   return name.replace(/\x1b\[[0-9;]*m/g, "").trim();
 }
 
-export function createApp() {
+export function createApp(publicDir?: string) {
+  const resolvedPublicDir = publicDir ?? defaultPublicDir;
   const app = express();
   app.use(express.json());
 
   // Serve static frontend
-  if (fs.existsSync(publicDir)) {
-    app.use(express.static(publicDir));
+  if (fs.existsSync(resolvedPublicDir)) {
+    app.use(express.static(resolvedPublicDir));
   }
 
   // ─── Review endpoint (SSE stream) ─────────────────────
@@ -184,7 +185,7 @@ export function createApp() {
 
   // Fallback to index.html for SPA routing
   app.get("*", (_req: Request, res: Response) => {
-    const indexPath = path.join(publicDir, "index.html");
+    const indexPath = path.join(resolvedPublicDir, "index.html");
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);
     } else {

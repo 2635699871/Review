@@ -3,4 +3,4 @@ dist/
 .env
 .pr-review/
 *.log
-.DS_Store
+.DS_Storerelease/
