@@ -200,7 +200,7 @@ const PORT = parseInt(process.env.PORT || "3300", 10);
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1]!.replace(/\\/g, "/"))) {
   const app = createApp();
-  app.listen(PORT, () => {
+  app.listen(PORT, "0.0.0.0", () => {
     console.log(`PR Review Assistant → http://localhost:${PORT}`);
   });
 }
