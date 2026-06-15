@@ -2,12 +2,30 @@ import { createApp } from "./server.js";
 import { exec } from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import * as readline from "node:readline";
+
+const exeDir = path.dirname(process.execPath);
+
+// Load .env from the same directory as the exe
+const envPath = path.resolve(exeDir, ".env");
+if (fs.existsSync(envPath)) {
+  const lines = fs.readFileSync(envPath, "utf-8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const value = trimmed.slice(eqIdx + 1).trim();
+    if (key && !(key in process.env)) {
+      process.env[key] = value;
+    }
+  }
+}
 
 const PORT = parseInt(process.env.PORT || "3300", 10);
 
-// When bundled with pkg, public/ is next to the .exe
-// When running via tsx, public/ is relative to project root
-const exeDir = path.dirname(process.execPath);
+// When bundled with pkg/sea, public/ is next to the .exe
 const publicDir = path.resolve(exeDir, "public");
 
 // Verify public/ exists, fallback for development
